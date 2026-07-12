@@ -1,0 +1,91 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Umbraco.Community.AdvancedPermissions.AI</RootNamespace>
+    <AssemblyName>Umbraco.Community.AdvancedPermissions.AI</AssemblyName>
+    <!-- Serve wwwroot content at the web root (/) so App_Plugins files are reachable at
+         /App_Plugins/... as Umbraco expects. Mirrors the base package. -->
+    <StaticWebAssetBasePath>/</StaticWebAssetBasePath>
+
+    <!-- NuGet package metadata -->
+    <IsPackable>true</IsPackable>
+    <PackageId>Umbraco.Community.AdvancedPermissions.AI</PackageId>
+    <Title>Advanced Permissions for Umbraco — AI Copilot Tools</Title>
+    <Authors>Luuk Peters</Authors>
+    <Copyright>Copyright (c) Luuk Peters</Copyright>
+    <Description>Optional AI companion for Umbraco.Community.AdvancedPermissions. Exposes Umbraco AI copilot tools that explain effective permissions, find which user groups can access a node, and audit permission configuration.</Description>
+    <PackageTags>umbraco;permissions;cms;ai;copilot;umbraco-marketplace</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>package_logo_128x128.png</PackageIcon>
+
+    <!-- Versioning: MinVer derives version from git tags (e.g. v17.0.0). Standalone repo, so a
+         plain "v" prefix (no "ai-v" disambiguation needed). -->
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerAutoIncrement>minor</MinVerAutoIncrement>
+    <MinVerMinimumMajorMinor>17.0</MinVerMinimumMajorMinor>
+
+    <!-- Symbols package + SourceLink -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <DeterministicSourcePaths Condition="'$(GITHUB_ACTIONS)' == 'true'">true</DeterministicSourcePaths>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="package_logo_128x128.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+    <!-- Real dependencies (flow to the NuGet package). Umbraco.Cms.* arrive transitively via both. -->
+    <PackageReference Include="Umbraco.AI" />
+    <PackageReference Include="Umbraco.Community.AdvancedPermissions" />
+  </ItemGroup>
+
+  <!-- Expose internal types (e.g. the assembly marker) to the test project so they can be tested
+       without widening accessibility in the shipped package. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Umbraco.Community.AdvancedPermissions.AI.Tests" />
+  </ItemGroup>
+
+  <!-- Sync umbraco-package.json version with the MinVer-derived version at build time. The source
+       file keeps "0.0.0" as a placeholder; this target replaces it. Guarantees the backoffice
+       version and the NuGet version share one MinVer source. Mirrors the base package. -->
+  <UsingTask TaskName="SetJsonVersion"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <FilePath ParameterType="System.String" Required="true" />
+      <VersionValue ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Fragment" Language="cs"><![CDATA[
+var text = System.IO.File.ReadAllText(FilePath);
+text = System.Text.RegularExpressions.Regex.Replace(
+    text, @"""version"":\s*""[^""]*""", $@"""version"": ""{VersionValue}""");
+System.IO.File.WriteAllText(FilePath, text);
+Log.LogMessage(MessageImportance.High, $"Set version in {FilePath} to {VersionValue}");
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="SyncUmbracoPackageVersion" AfterTargets="MinVer"
+          Condition="'$(MinVerVersion)' != ''">
+    <SetJsonVersion
+      FilePath="$(ProjectDir)wwwroot\App_Plugins\Umbraco.Community.AdvancedPermissions.AI\umbraco-package.json"
+      VersionValue="$(MinVerVersion)" />
+  </Target>
+
+</Project>

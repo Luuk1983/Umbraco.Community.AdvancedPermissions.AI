@@ -1,0 +1,39 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Base package — the AI companion augments it and resolves its services at runtime.
+         Real dependency (flows Abstractions transitively for the compile-time contract). Pinned to
+         the v17 line; the -0 upper bound excludes v18 prereleases. -->
+    <PackageVersion Include="Umbraco.Community.AdvancedPermissions" Version="[17.2.0,18.0.0-0)" />
+
+    <!-- Umbraco AI — the [AITool] runtime. Realigned to the CMS major in the 2026.06 releases, so
+         17.0.0 targets Umbraco.Cms 17.x and requires Umbraco.Cms >= 17.4.2. Agent/providers/Copilot
+         are TestSite-only (manual verification); providers are referenced by the human when testing. -->
+    <PackageVersion Include="Umbraco.AI" Version="17.0.0" />
+    <PackageVersion Include="Umbraco.AI.Agent" Version="17.0.0" />
+    <PackageVersion Include="Umbraco.AI.Agent.Copilot" Version="17.0.0" />
+    <PackageVersion Include="Umbraco.AI.Anthropic" Version="17.0.0" />
+    <PackageVersion Include="Umbraco.AI.OpenAI" Version="17.0.0" />
+
+    <!-- Umbraco CMS meta — TestSite only. The ONE place the 17.4.2 floor is explicit (CPM requires
+         a version for the direct reference); it matches Umbraco.AI's requirement. The package
+         project declares NO direct Umbraco.Cms.* references — they flow transitively. -->
+    <PackageVersion Include="Umbraco.Cms" Version="[17.4.2,18.0.0)" />
+
+    <!-- TestSite infra -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.6" />
+
+    <!-- Build / versioning — tooling tracks the v18 base repo, NOT the v17 Umbraco line. -->
+    <PackageVersion Include="MinVer" Version="7.0.0" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
+
+    <!-- Testing — tooling tracks the v18 base repo. -->
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
+    <PackageVersion Include="NSubstitute" Version="5.3.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://marketplace.umbraco.com/umbraco-marketplace-schema.json",
+  "Title": "Advanced Permissions for Umbraco — AI Copilot Tools",
+  "Category": "Developer Tools",
+  "AlternateCategory": "Editor Tools",
+  "Description": "Optional AI companion for Advanced Permissions for Umbraco. Makes the Umbraco backoffice copilot permission-aware: ask in plain language who can do what, why an action is denied, and audit permission configuration — every answer grounded in the package's permission-resolution engine, read-only.",
+  "PackageType": "Package",
+  "LicenseTypes": ["Free"],
+  "AuthorDetails": {
+    "Name": "Luuk Peters",
+    "Description": "Umbraco developer building packages that extend the CMS with enterprise-grade features. Creator of Advanced Permissions for Umbraco.",
+    "Url": "https://github.com/Luuk1983",
+    "SyncContributorsFromRepository": true
+  },
+  "DocumentationUrl": "https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI",
+  "IssueTrackerUrl": "https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/issues",
+  "Tags": [
+    "permissions",
+    "security",
+    "ai",
+    "copilot",
+    "umbraco ai",
+    "access control",
+    "audit",
+    "user groups",
+    "backoffice"
+  ],
+  "Screenshots": []
+}
