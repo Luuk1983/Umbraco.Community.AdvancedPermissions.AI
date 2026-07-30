@@ -49,8 +49,11 @@
   <ItemGroup>
     <PackageReference Include="MinVer" PrivateAssets="all" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
-    <!-- Real dependencies (flow to the NuGet package). Umbraco.Cms.* arrive transitively via both. -->
-    <PackageReference Include="Umbraco.AI" />
+    <!-- Real dependencies (flow to the NuGet package). Umbraco.Cms.* arrive transitively via both.
+         Umbraco.AI.Core is the AI authoring contract (attributes, IRuntimeContextContributor, the
+         AIRuntimeContextContributors() builder extension) — NOT the full Umbraco.AI runtime bundle,
+         which the host application supplies. Mirrors depending on Umbraco.Cms.Core over Umbraco.Cms. -->
+    <PackageReference Include="Umbraco.AI.Core" />
     <PackageReference Include="Umbraco.Community.AdvancedPermissions" />
   </ItemGroup>
 

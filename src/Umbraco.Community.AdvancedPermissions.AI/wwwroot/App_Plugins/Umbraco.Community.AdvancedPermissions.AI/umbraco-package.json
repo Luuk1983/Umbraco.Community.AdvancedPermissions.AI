@@ -1,6 +1,25 @@
 {
   "name": "Advanced Permissions for Umbraco — AI Copilot Tools",
-  "version": "0.0.0",
+  "version": "17.0.0-alpha.0.1",
   "allowPublicAccess": false,
-  "extensions": []
+  "extensions": [
+    {
+      "type": "localization",
+      "alias": "UAP.AI.Localization.En",
+      "name": "Advanced Permissions AI English Localization",
+      "meta": {
+        "culture": "en"
+      },
+      "js": "/App_Plugins/Umbraco.Community.AdvancedPermissions.AI/lang/en.js"
+    },
+    {
+      "type": "localization",
+      "alias": "UAP.AI.Localization.Nl",
+      "name": "Advanced Permissions AI Dutch Localization",
+      "meta": {
+        "culture": "nl"
+      },
+      "js": "/App_Plugins/Umbraco.Community.AdvancedPermissions.AI/lang/nl.js"
+    }
+  ]
 }

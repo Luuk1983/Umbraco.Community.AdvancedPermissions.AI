@@ -61,3 +61,10 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
   `publish.yml` does the rest. Ask before tagging/pushing (maintainer preference; no auto-commit).
 - **Reference source**: Umbraco v17 backoffice at `C:\GitHub\UmbracoVersions\v17\src\Umbraco.Web.UI.Client`.
   Do not read `node_modules` — use the reference source.
+- **Grounding text mirrors the base package UI**: the grounding line in
+  `Context/AdvancedPermissionsGroundingContributor.cs` hard-codes base-package UI labels and navigation
+  (e.g. "Users section", "Content Permissions", "Permissions Editor") so the copilot can explain *how* to
+  change permissions in the backoffice. Source of truth is the base repo's
+  `src/Umbraco.Community.AdvancedPermissions.Client/help-docs/en/*.md` and `src/.../manifests.ts` (menu/
+  section registration). If those labels or the navigation change, update the grounding string and its tests
+  to match.
