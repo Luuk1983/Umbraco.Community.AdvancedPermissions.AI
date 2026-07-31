@@ -215,8 +215,8 @@ public sealed class ExplainAccessToolTests
 
         var explanation = Assert.IsType<AccessExplanation>(result);
         Assert.Equal("Homepage", explanation.Node);
-        Assert.Contains(explanation.Permissions, p => p.Action == "Read" && p.Result == "Allowed");
-        Assert.Contains(explanation.Permissions, p => p.Action == "Delete" && p.Result == "Denied");
+        Assert.Contains(explanation.Permissions, p => p.Permission == "Read" && p.Result == "Allowed");
+        Assert.Contains(explanation.Permissions, p => p.Permission == "Delete" && p.Result == "Denied");
         AssertNoRawIdentifiers(explanation, nodeKey);
 
         await _permissions.Received(1).ResolveAllAsync(userKey, nodeKey, path, null, Arg.Any<CancellationToken>());
@@ -244,7 +244,7 @@ public sealed class ExplainAccessToolTests
             new ExplainAccessArgs(ExplainSubject.User, nodeKey, UserKey: userKey, Verb: verb), CancellationToken.None);
 
         var verdict = Assert.IsType<AccessVerdict>(result);
-        Assert.Equal("Publish", verdict.Action);
+        Assert.Equal("Publish", verdict.Permission);
         Assert.Equal("Denied", verdict.Result);
         Assert.Equal("Editors", verdict.Reasons[0].Role);
         AssertNoRawIdentifiers(verdict, nodeKey);
@@ -295,7 +295,7 @@ public sealed class ExplainAccessToolTests
             new ExplainAccessArgs(ExplainSubject.CurrentUser, nodeKey), CancellationToken.None);
 
         var explanation = Assert.IsType<AccessExplanation>(result);
-        Assert.Contains(explanation.Permissions, p => p.Action == "Publish" && p.Result == "Denied");
+        Assert.Contains(explanation.Permissions, p => p.Permission == "Publish" && p.Result == "Denied");
         AssertNoRawIdentifiers(explanation, nodeKey);
         await _permissions.Received(1).ResolveAllAsync(userKey, nodeKey, path, null, Arg.Any<CancellationToken>());
     }
@@ -343,7 +343,7 @@ public sealed class ExplainAccessToolTests
             new ExplainAccessArgs(ExplainSubject.Role, nodeKey, RoleAlias: roleAlias, Verb: verb), CancellationToken.None);
 
         var verdict = Assert.IsType<AccessVerdict>(result);
-        Assert.Equal("Publish", verdict.Action);
+        Assert.Equal("Publish", verdict.Permission);
         Assert.Equal("Denied", verdict.Result);
         AssertNoRawIdentifiers(verdict, nodeKey);
     }
@@ -372,7 +372,7 @@ public sealed class ExplainAccessToolTests
 
         var explanation = Assert.IsType<AccessExplanation>(result);
         Assert.Equal("News", explanation.Node);
-        Assert.Contains(explanation.Permissions, p => p.Action == "Read" && p.Result == "Allowed");
+        Assert.Contains(explanation.Permissions, p => p.Permission == "Read" && p.Result == "Allowed");
         AssertNoRawIdentifiers(explanation, nodeKey);
         await _permissions.Received(1).ResolveForRoleAsync(roleAlias, nodeKey, path, null, Arg.Any<CancellationToken>());
     }
@@ -426,7 +426,7 @@ public sealed class ExplainAccessToolTests
             new ExplainAccessArgs(ExplainSubject.AllRoles, nodeKey, Verb: verb), CancellationToken.None);
 
         var roster = Assert.IsType<AccessRoster>(result);
-        Assert.Equal("Publish", roster.Action);
+        Assert.Equal("Publish", roster.Permission);
         Assert.Equal("Campaign", roster.Node);
         Assert.Contains("Editors", roster.AllowedRoles);
         Assert.Contains("Writers", roster.DeniedRoles);
@@ -473,10 +473,10 @@ public sealed class ExplainAccessToolTests
 
         var report = Assert.IsType<AccessRosterReport>(result);
         Assert.Equal("Campaign", report.Node);
-        var read = Assert.Single(report.Actions, a => a.Action == "Read");
+        var read = Assert.Single(report.Permissions, a => a.Permission == "Read");
         Assert.Contains("Editors", read.AllowedRoles);
         Assert.Contains(AdvancedPermissionsConstants.EveryoneRoleDisplayName, read.DeniedRoles);
-        var delete = Assert.Single(report.Actions, a => a.Action == "Delete");
+        var delete = Assert.Single(report.Permissions, a => a.Permission == "Delete");
         Assert.Contains("Editors", delete.DeniedRoles);
 
         var json = JsonSerializer.Serialize(report);

@@ -112,6 +112,65 @@ public sealed class AdvancedPermissionsGroundingContributorTests
     }
 
     /// <summary>
+    /// The grounding line must steer the model toward editor-grounded terminology rather than raw
+    /// data-model tokens: a permission record is an "entry" (never a bare "Allow"/"Deny" noun), an action
+    /// is a "permission" (never a bare verb), and the collections are "user groups" (never "roles"). This
+    /// guards the copilot from narrating permissions like a database ("there's a deny on delete").
+    /// </summary>
+    [Fact]
+    public void Contribute_DocumentContext_GuidesEditorGroundedTerminology()
+    {
+        var context = NewContext();
+        context.SetValue(Constants.ContextKeys.EntityType, "document");
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("Deny entry", grounding, StringComparison.Ordinal);
+        Assert.Contains("user group", grounding, StringComparison.Ordinal);
+        Assert.Contains("Delete permission", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The grounding line must tell the model to base any recommended fix on the confirmed
+    /// <c>suggestFix</c> output rather than a hand-rolled guess, and to admit it cannot see why an entry was
+    /// created — offering an audit instead. These guard the "guessed the fix" and "dropped the 'do you know
+    /// why?' question" quirks seen in real conversations.
+    /// </summary>
+    [Fact]
+    public void Contribute_DocumentContext_TellsModelToConfirmFixesAndAdmitUnknownIntent()
+    {
+        var context = NewContext();
+        context.SetValue(Constants.ContextKeys.EntityType, "document");
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("suggestFix", grounding, StringComparison.Ordinal);
+        Assert.Contains("guess", grounding, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("uap_audit_permissions", grounding, StringComparison.Ordinal);
+        Assert.Contains("why, when", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The grounding line must explicitly disclaim the two wordings the model was observed to invent: "a
+    /// Deny permission" (a state is not a permission — it's an entry) and "the Delete action" (the action
+    /// IS the permission). The disclaimers appear verbatim as "never say" examples.
+    /// </summary>
+    [Fact]
+    public void Contribute_DocumentContext_DisclaimsStateAsPermissionAndActionWording()
+    {
+        var context = NewContext();
+        context.SetValue(Constants.ContextKeys.EntityType, "document");
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("a Deny permission", grounding, StringComparison.Ordinal);
+        Assert.Contains("the Delete action", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The contributor is append-only: even on a document context it must leave the
     /// <see cref="AIRuntimeContext.Variables"/> and <see cref="AIRuntimeContext.Data"/> bags untouched
     /// (it must not call <see cref="AIRuntimeContext.SetValue(string, object?)"/> itself). The only

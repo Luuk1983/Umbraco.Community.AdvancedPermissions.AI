@@ -114,13 +114,13 @@ public sealed class AuditPermissionsToolTests
         var conflict = report.Findings.Single(f => f.RuleId == "allow-deny-conflict");
         Assert.Equal("Warning", conflict.Severity);
         Assert.Equal("Editors", conflict.Role);
-        Assert.Equal("Delete", conflict.Action);
+        Assert.Equal("Delete", conflict.Permission);
         Assert.Equal("News", conflict.Node);
 
         var broad = report.Findings.Single(f => f.RuleId == "everyone-broad-write");
         Assert.Equal("Risk", broad.Severity);
         Assert.Equal("All Users", broad.Role);
-        Assert.Equal("Update", broad.Action);
+        Assert.Equal("Update", broad.Permission);
         Assert.Equal("All content (root-level default)", broad.Node);
 
         // No raw identifiers anywhere in the serialized friendly report.

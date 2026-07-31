@@ -10,7 +10,8 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// </summary>
 /// <param name="Description">
 /// A plain-language sentence describing the change and that it would result in the action being allowed,
-/// e.g. "An administrator could remove the Deny for Delete on News set for Editors, which would allow it."
+/// e.g. "An administrator could remove the Deny entry on the Delete permission for the Editors user group
+/// on News — after which the Delete permission would be allowed."
 /// </param>
 /// <param name="Action">The friendly change verb: "Remove", "Add", or "Override".</param>
 /// <param name="Role">The friendly role the change targets (e.g. "Editors", "All Users").</param>

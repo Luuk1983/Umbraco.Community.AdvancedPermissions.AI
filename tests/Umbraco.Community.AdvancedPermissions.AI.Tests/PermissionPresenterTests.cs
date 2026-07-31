@@ -164,6 +164,25 @@ public sealed class PermissionPresenterTests
     }
 
     /// <summary>
+    /// The verdict the model receives must name the controlled action as a "Permission" field, not an
+    /// "Action" field: a field literally named <c>Action</c> steers the model to write "the Delete action"
+    /// instead of "the Delete permission". This guards the JSON contract the terminology depends on.
+    /// </summary>
+    [Fact]
+    public async Task ToVerdict_ExposesPermissionFieldNotActionField()
+    {
+        var sut = CreateSut();
+        var permission = new EffectivePermission(
+            "Umb.Document.Delete", IsAllowed: false, IsExplicit: true, Reasoning: []);
+
+        var verdict = await sut.ToVerdictAsync(permission);
+        var json = System.Text.Json.JsonSerializer.Serialize(verdict);
+
+        Assert.Contains("\"Permission\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Action\"", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// An effective permission with reasoning maps to a friendly verdict: friendly action,
     /// friendly result, and friendly reasons with no raw identifiers.
     /// </summary>
@@ -200,7 +219,7 @@ public sealed class PermissionPresenterTests
 
         var verdict = await sut.ToVerdictAsync(permission);
 
-        Assert.Equal("Delete", verdict.Action);
+        Assert.Equal("Delete", verdict.Permission);
         Assert.Equal("Denied", verdict.Result);
         Assert.Equal(2, verdict.Reasons.Count);
 
@@ -244,8 +263,8 @@ public sealed class PermissionPresenterTests
 
         Assert.Equal("News", explanation.Node);
         Assert.Equal(2, explanation.Permissions.Count);
-        Assert.Contains(explanation.Permissions, p => p.Action == "Read" && p.Result == "Allowed");
-        Assert.Contains(explanation.Permissions, p => p.Action == "Delete" && p.Result == "Denied");
+        Assert.Contains(explanation.Permissions, p => p.Permission == "Read" && p.Result == "Allowed");
+        Assert.Contains(explanation.Permissions, p => p.Permission == "Delete" && p.Result == "Denied");
     }
 
     /// <summary>
@@ -290,14 +309,18 @@ public sealed class PermissionPresenterTests
         Assert.Equal("everyone-broad-write", first.RuleId);
         Assert.Equal("Risk", first.Severity);
         Assert.Equal("All Users", first.Role);
-        Assert.Equal("Update", first.Action);
+        Assert.Equal("Update", first.Permission);
         Assert.Equal("All content (root-level default)", first.Node);
 
         var second = friendly.Findings[1];
         Assert.Equal("Warning", second.Severity);
         Assert.Equal("Editors", second.Role);
-        Assert.Equal("Delete", second.Action);
+        Assert.Equal("Delete", second.Permission);
         Assert.Equal("News", second.Node);
+        // The conflict message uses editor-grounded terminology ("entry"/"permission"), not bare tokens.
+        Assert.Contains("Allow entry", second.Message, StringComparison.Ordinal);
+        Assert.Contains("Deny entry", second.Message, StringComparison.Ordinal);
+        Assert.Contains("Delete permission", second.Message, StringComparison.Ordinal);
 
         // No raw identifiers anywhere in the projected report.
         var json = System.Text.Json.JsonSerializer.Serialize(friendly);
@@ -334,6 +357,11 @@ public sealed class PermissionPresenterTests
         Assert.Null(friendly.Scope);
         Assert.Contains("administrator", friendly.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("allow", friendly.Description, StringComparison.OrdinalIgnoreCase);
+        // Editor-grounded terminology: the record is an "entry", the action is a "permission", and the
+        // collections are "user groups" — never bare "Deny"/"Delete"/"role".
+        Assert.Contains("Deny entry", friendly.Description, StringComparison.Ordinal);
+        Assert.Contains("Delete permission", friendly.Description, StringComparison.Ordinal);
+        Assert.Contains("user group", friendly.Description, StringComparison.Ordinal);
 
         var json = System.Text.Json.JsonSerializer.Serialize(friendly);
         Assert.DoesNotContain("$everyone", json);
@@ -370,6 +398,11 @@ public sealed class PermissionPresenterTests
         Assert.Equal("Publish", friendly.Permission);
         Assert.Equal("Editors", friendly.Role);
         Assert.Equal("This node only", friendly.Scope);
+        // Editor-grounded terminology, including naming the conflicting entry it overrides.
+        Assert.Contains("Allow entry", friendly.Description, StringComparison.Ordinal);
+        Assert.Contains("Deny entry", friendly.Description, StringComparison.Ordinal);
+        Assert.Contains("Publish permission", friendly.Description, StringComparison.Ordinal);
+        Assert.Contains("user group", friendly.Description, StringComparison.Ordinal);
 
         var json = System.Text.Json.JsonSerializer.Serialize(friendly);
         Assert.DoesNotContain("Umb.Document.", json);

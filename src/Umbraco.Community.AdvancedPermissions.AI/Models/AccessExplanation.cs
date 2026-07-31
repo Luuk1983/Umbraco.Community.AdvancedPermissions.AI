@@ -24,9 +24,9 @@ public sealed record AccessReason(
     bool PriorityOverride);
 
 /// <summary>
-/// One action's friendly verdict at a content node: whether it is allowed or denied, and why.
+/// One permission's friendly verdict at a content node: whether it is allowed or denied, and why.
 /// </summary>
-/// <param name="Action">The friendly action name (e.g. "Delete", "Publish").</param>
+/// <param name="Permission">The friendly permission name (e.g. "Delete", "Publish") — the action being controlled.</param>
 /// <param name="Result">The friendly result ("Allowed" or "Denied").</param>
 /// <param name="Reasons">The ordered friendly reasons that led to the result, highest priority first.</param>
 /// <param name="Remediations">
@@ -36,7 +36,7 @@ public sealed record AccessReason(
 /// the verdict is <c>Allowed</c>, or no change could flip it.
 /// </param>
 public sealed record AccessVerdict(
-    string Action,
+    string Permission,
     string Result,
     IReadOnlyList<AccessReason> Reasons,
     IReadOnlyList<AccessRemediation>? Remediations = null);

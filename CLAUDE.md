@@ -68,3 +68,10 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
   `src/Umbraco.Community.AdvancedPermissions.Client/help-docs/en/*.md` and `src/.../manifests.ts` (menu/
   section registration). If those labels or the navigation change, update the grounding string and its tests
   to match.
+- **Editor-facing terminology**: the copilot must talk like an editor, not the data model. A record is an
+  **"entry"** (never a bare "Allow"/"Deny" noun — say "a Deny entry", or verb it: "deleting is denied"); an
+  action is a **"permission"** ("the Delete permission", not bare "Delete"); the collections are **"user
+  groups"** (never "roles"); **"node"** stays as the generic content word. "entry" beats "rule" because the
+  base package's `concepts.md` uses "entry" and not "rule". Enforced in the grounding string
+  (`AdvancedPermissionsGroundingContributor`) and the baked sentences in `PermissionPresenter`
+  (`ToRemediationAsync`, `BuildFriendlyMessage`, `GroupsText`) — keep both in step, with tests.

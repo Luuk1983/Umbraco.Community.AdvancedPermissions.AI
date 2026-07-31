@@ -161,7 +161,7 @@ public sealed class PermissionPresenter(
 
         if (option.Kind == RemediationActionKind.RemoveDeny)
         {
-            // Name every role whose Deny must be removed together, friendly.
+            // Name every user group whose Deny entry must be removed together, friendly.
             var roleNames = new List<string>(option.RemovedRoleAliases.Count);
             foreach (var alias in option.RemovedRoleAliases)
             {
@@ -169,31 +169,31 @@ public sealed class PermissionPresenter(
             }
 
             var role = await GetRoleDisplayNameAsync(option.RoleAlias, cancellationToken);
-            var rolesText = Join(roleNames);
             var removeDescription =
-                $"An administrator could remove the Deny for {permission} on {node} " +
-                $"set for {rolesText}, which would result in {permission} being allowed.";
+                $"An administrator could remove the Deny entry on the {permission} permission for {GroupsText(roleNames)} " +
+                $"on {node} — after which the {permission} permission would be allowed.";
 
             return new AccessRemediation(removeDescription, "Remove", role, permission, Scope: null, SetOn: node);
         }
 
-        // An addition: name the single target role and build the action-specific sentence.
+        // An addition: name the single target user group and build the action-specific sentence.
         var addRole = await GetRoleDisplayNameAsync(option.RoleAlias, cancellationToken);
 
         var (action, description) = option.Kind switch
         {
             RemediationActionKind.AddPriorityOverrideAllow => (
                 "Override",
-                $"An administrator could add a priority-override Allow for {permission} on {node} " +
-                $"for {addRole} ({scope}), which would override the conflicting Deny and result in {permission} being allowed."),
+                $"An administrator could add a Priority Override Allow entry on the {permission} permission for the " +
+                $"{addRole} user group on {node} (scope: {scope}), which would override the conflicting Deny entry " +
+                $"and allow {permission}."),
             RemediationActionKind.AddAllowOnAncestor => (
                 "Add",
-                $"An administrator could add an Allow for {permission} on {node} for {addRole} ({scope}), " +
-                $"which would result in {permission} being allowed here through inheritance."),
+                $"An administrator could add an Allow entry on the {permission} permission for the {addRole} user " +
+                $"group on {node} (scope: {scope}), which would allow {permission} here through inheritance."),
             _ => (
                 "Add",
-                $"An administrator could add an Allow for {permission} on {node} for {addRole} ({scope}), " +
-                $"which would result in {permission} being allowed."),
+                $"An administrator could add an Allow entry on the {permission} permission for the {addRole} user " +
+                $"group on {node} (scope: {scope}), which would allow {permission}."),
         };
 
         return new AccessRemediation(description, action, addRole, permission, scope, node);
@@ -263,16 +263,16 @@ public sealed class PermissionPresenter(
     private static string BuildFriendlyMessage(string ruleId, string? role, string? action, string? node) => ruleId switch
     {
         "everyone-broad-write" =>
-            $"{role ?? "All Users"} is allowed to {Lower(action) ?? "perform this action"} across the whole site from {node ?? "the root"}.",
+            $"The {role ?? "All Users"} group is allowed to {Lower(action) ?? "perform this action"} across the whole site from {node ?? "the root"}.",
         "manage-permissions-descendants" =>
-            $"{role ?? "This role"} can manage permissions on {node ?? "this node"} and all of its descendants.",
+            $"The {role ?? "relevant"} user group can manage permissions on {node ?? "this node"} and all of its descendants.",
         "priority-override" =>
-            $"A priority override is set for {Lower(action) ?? "an action"} on {role ?? "this role"}.",
+            $"A Priority Override is set on the {role ?? "relevant"} user group for the {action ?? "action"} permission.",
         "allow-deny-conflict" =>
-            $"{role ?? "This role"} has both an Allow and a Deny for {Lower(action) ?? "the same action"} on {node ?? "the same node"}.",
+            $"{role ?? "This user group"} has both an Allow entry and a Deny entry for the {action ?? "same"} permission on {node ?? "the same node"}.",
         _ =>
-            $"{role ?? "This role"} has a configuration worth reviewing"
-                + (action is null ? string.Empty : $" for {Lower(action)}")
+            $"{role ?? "This user group"} has a configuration worth reviewing"
+                + (action is null ? string.Empty : $" for the {action} permission")
                 + (node is null ? string.Empty : $" on {node}") + ".",
     };
 
@@ -290,10 +290,24 @@ public sealed class PermissionPresenter(
     /// <returns>The joined, human-readable list.</returns>
     private static string Join(IReadOnlyList<string> names) => names.Count switch
     {
-        0 => "the role",
+        0 => "the user group",
         1 => names[0],
         2 => $"{names[0]} and {names[1]}",
         _ => $"{string.Join(", ", names.Take(names.Count - 1))} and {names[^1]}",
+    };
+
+    /// <summary>
+    /// Renders friendly user group names as a natural-language phrase that names them as user groups
+    /// ("the Editors user group", "the Editors and All Users user groups"), so a remediation sentence
+    /// grounds the reader in what they see in the editor rather than a bare group name.
+    /// </summary>
+    /// <param name="names">The friendly user group names, in order.</param>
+    /// <returns>The grounded, human-readable phrase including the "user group(s)" noun.</returns>
+    private static string GroupsText(IReadOnlyList<string> names) => names.Count switch
+    {
+        0 => "the relevant user group",
+        1 => $"the {names[0]} user group",
+        _ => $"the {Join(names)} user groups",
     };
 
     /// <summary>

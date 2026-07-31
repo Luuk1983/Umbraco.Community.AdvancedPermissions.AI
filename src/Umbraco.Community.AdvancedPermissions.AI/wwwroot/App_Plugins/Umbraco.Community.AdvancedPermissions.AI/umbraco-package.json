@@ -1,6 +1,6 @@
 {
   "name": "Advanced Permissions for Umbraco — AI Copilot Tools",
-  "version": "17.0.0-alpha.0.1",
+  "version": "17.0.0-alpha.0.2",
   "allowPublicAccess": false,
   "extensions": [
     {
