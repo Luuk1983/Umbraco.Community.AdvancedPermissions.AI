@@ -61,10 +61,18 @@ public enum RemediationActionKind
 /// For a <see cref="RemediationActionKind.RemoveDeny"/> option, the complete set of role aliases whose
 /// contributing Deny entries must all be removed together for the verdict to flip. Empty for additions.
 /// </param>
+/// <param name="GrantedBy">
+/// For a <see cref="RemediationActionKind.RemoveDeny"/> option, the Allow reasoning line that decides the
+/// verdict <i>after</i> the Deny entries are removed — captured from the confirming re-resolution. Because
+/// the resolver defaults to Deny, removing a Deny only grants access when something else already allows
+/// it; this names that grant so the explanation can say <i>why</i> the change works rather than merely
+/// asserting that it does. <see langword="null"/> for additions, where the added entry is itself the grant.
+/// </param>
 public sealed record RemediationOption(
     RemediationActionKind Kind,
     string RoleAlias,
     string Verb,
     Guid NodeKey,
     PermissionScope? Scope,
-    IReadOnlyList<string> RemovedRoleAliases);
+    IReadOnlyList<string> RemovedRoleAliases,
+    PermissionReasoning? GrantedBy = null);

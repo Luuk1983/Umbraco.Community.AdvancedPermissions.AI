@@ -6,7 +6,10 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// </summary>
 /// <param name="Role">The friendly role name that contributed this decision (e.g. "Editors", "All Users").</param>
 /// <param name="Decision">The friendly decision contributed by this role ("Allowed" or "Denied").</param>
-/// <param name="Scope">The friendly scope of the contributing entry (e.g. "This node only").</param>
+/// <param name="Scope">
+/// The friendly scope of the contributing entry — the Permissions Editor's label with its plain-English
+/// meaning attached, e.g. "This node only (the node itself, not its children)".
+/// </param>
 /// <param name="SetOn">The friendly name of the node the contributing entry was set on.</param>
 /// <param name="Inherited">
 /// <see langword="true"/> when this decision was inherited from an ancestor or a group default;

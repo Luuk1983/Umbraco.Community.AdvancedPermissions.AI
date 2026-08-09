@@ -120,3 +120,10 @@ public sealed record AuditPermissionsArgs(
     Guid? NodeKey = null,
     [property: Description("Optional minimum severity filter: 'Info', 'Warning', or 'Risk'. When set, only findings at or above this severity are returned.")]
     AuditSeverity? SeverityMin = null);
+
+/// <summary>
+/// Arguments for the explain-concepts tool. The tool returns the whole conceptual reference, so it takes
+/// no arguments — a topic filter would only risk the model selecting the wrong section and answering from
+/// its own (wrong) assumptions about the rest.
+/// </summary>
+public sealed record ExplainConceptsArgs();

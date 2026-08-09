@@ -40,6 +40,17 @@ public sealed class PermissionPresenter(
     private const string NotApplicableLabel = "Not applicable";
 
     /// <summary>
+    /// The caution attached to every Priority Override remediation. An override is the only change that
+    /// beats a same-node Deny entry, which also makes it the easiest to forget and the hardest to reason
+    /// about later — so it is never presented as an equal-footing alternative to removing the Deny entry.
+    /// </summary>
+    private const string OverrideCaution =
+        "Use Priority Override sparingly. It wins even over a Deny entry, so anyone reviewing these " +
+        "permissions later sees a Deny that is silently not in effect. Prefer removing the Deny entry " +
+        "when the restriction is no longer wanted, and use an override only when the Deny must stay in " +
+        "place for everyone else.";
+
+    /// <summary>
     /// Lazily-built map of user group alias to display name, cached for the lifetime of this
     /// presenter instance so repeated role lookups within a single tool call do not re-page.
     /// </summary>
@@ -74,12 +85,39 @@ public sealed class PermissionPresenter(
     }
 
     /// <inheritdoc />
-    public string GetScopeText(PermissionScope scope) => scope switch
+    public string GetScopeText(PermissionScope scope) =>
+        GetScopeGloss(scope) is { } gloss
+            ? $"{GetScopeLabel(scope)} ({gloss})"
+            : GetScopeLabel(scope);
+
+    /// <summary>
+    /// The scope's label exactly as it appears in the base package's Permissions Editor scope dropdown
+    /// (<c>scope_thisNodeOnly</c> and friends). Kept verbatim so the copilot's wording anchors to what the
+    /// editor actually sees on screen; the plain-English meaning is attached separately.
+    /// </summary>
+    /// <param name="scope">The scope to label.</param>
+    /// <returns>The editor-facing scope label.</returns>
+    private static string GetScopeLabel(PermissionScope scope) => scope switch
     {
         PermissionScope.ThisNodeOnly => "This node only",
         PermissionScope.ThisNodeAndDescendants => "This node and descendants",
         PermissionScope.DescendantsOnly => "Descendants only",
         _ => scope.ToString(),
+    };
+
+    /// <summary>
+    /// The scope's plain-English meaning — what it actually reaches — taken verbatim from the base
+    /// package's own <c>concepts.md</c> so the copilot explains a scope the same way the help docs do.
+    /// A scope name alone ("This node only") tells an editor nothing about whether children are affected.
+    /// </summary>
+    /// <param name="scope">The scope to explain.</param>
+    /// <returns>The meaning, or <see langword="null"/> for an unrecognised scope that has no gloss.</returns>
+    private static string? GetScopeGloss(PermissionScope scope) => scope switch
+    {
+        PermissionScope.ThisNodeOnly => "the node itself, not its children",
+        PermissionScope.ThisNodeAndDescendants => "the node and everything beneath it",
+        PermissionScope.DescendantsOnly => "the children but not the node itself",
+        _ => null,
     };
 
     /// <inheritdoc />
@@ -153,7 +191,10 @@ public sealed class PermissionPresenter(
     }
 
     /// <inheritdoc />
-    public async Task<AccessRemediation> ToRemediationAsync(RemediationOption option, CancellationToken cancellationToken = default)
+    public async Task<AccessRemediation> ToRemediationAsync(
+        RemediationOption option,
+        bool forAsker = false,
+        CancellationToken cancellationToken = default)
     {
         var permission = GetVerbDisplayName(option.Verb);
         var node = GetNodeName(option.NodeKey);
@@ -169,34 +210,94 @@ public sealed class PermissionPresenter(
             }
 
             var role = await GetRoleDisplayNameAsync(option.RoleAlias, cancellationToken);
+
+            // Removing a Deny only grants access because something ELSE already allows it (no entry means
+            // deny), so name that grant. Without it the sentence asserts an outcome the reader cannot check.
+            var grantedBy = option.GrantedBy is { } granted
+                ? await GrantedByTextAsync(granted, permission, forAsker, cancellationToken)
+                : null;
+
             var removeDescription =
                 $"An administrator could remove the Deny entry on the {permission} permission for {GroupsText(roleNames)} " +
-                $"on {node} — after which the {permission} permission would be allowed.";
+                $"on {node}. {permission} would then be allowed" +
+                (grantedBy is null ? "." : $", because {grantedBy}.");
 
-            return new AccessRemediation(removeDescription, "Remove", role, permission, Scope: null, SetOn: node);
+            return new AccessRemediation(
+                removeDescription, "Remove", role, permission, Scope: null, SetOn: node, GrantedBy: grantedBy);
         }
 
         // An addition: name the single target user group and build the action-specific sentence.
         var addRole = await GetRoleDisplayNameAsync(option.RoleAlias, cancellationToken);
 
-        var (action, description) = option.Kind switch
+        // State the scope in prose with its meaning attached: a scope name alone does not tell an editor
+        // whether the entry reaches the children. Empty when the option carries no scope of its own.
+        var scopePhrase = option.Scope is { } scoped
+            ? $", with scope '{GetScopeLabel(scoped)}'" +
+              (GetScopeGloss(scoped) is { } g ? $" ({g})" : string.Empty)
+            : string.Empty;
+
+        var (action, description, caution) = option.Kind switch
         {
             RemediationActionKind.AddPriorityOverrideAllow => (
                 "Override",
                 $"An administrator could add a Priority Override Allow entry on the {permission} permission for the " +
-                $"{addRole} user group on {node} (scope: {scope}), which would override the conflicting Deny entry " +
-                $"and allow {permission}."),
+                $"{addRole} user group on {node}{scopePhrase}. That would override the conflicting Deny entry " +
+                $"and allow {permission}.",
+                (string?)OverrideCaution),
             RemediationActionKind.AddAllowOnAncestor => (
                 "Add",
                 $"An administrator could add an Allow entry on the {permission} permission for the {addRole} user " +
-                $"group on {node} (scope: {scope}), which would allow {permission} here through inheritance."),
+                $"group on {node}{scopePhrase}. {permission} would then be allowed here through inheritance.",
+                null),
             _ => (
                 "Add",
                 $"An administrator could add an Allow entry on the {permission} permission for the {addRole} user " +
-                $"group on {node} (scope: {scope}), which would allow {permission}."),
+                $"group on {node}{scopePhrase}. {permission} would then be allowed.",
+                null),
         };
 
-        return new AccessRemediation(description, action, addRole, permission, scope, node);
+        return new AccessRemediation(description, action, addRole, permission, scope, node, Caution: caution);
+    }
+
+    /// <summary>
+    /// Builds the plain-language phrase naming what allows a permission once the contributing Deny entries
+    /// are removed, covering the three ways a grant can reach the node: an entry set directly on it, an
+    /// entry inherited from an ancestor, or the user group's own default.
+    /// </summary>
+    /// <param name="granted">The deciding Allow reasoning line from the confirming re-resolution.</param>
+    /// <param name="permission">The friendly permission name the change is about.</param>
+    /// <param name="forAsker">
+    /// When <see langword="true"/> the grant is addressed to the reader in the second person, because the
+    /// question was about their own access and the granting group is therefore one that applies to them.
+    /// </param>
+    /// <param name="cancellationToken">Token to support cancellation.</param>
+    /// <returns>A phrase suitable for use after "because …".</returns>
+    private async Task<string> GrantedByTextAsync(
+        PermissionReasoning granted,
+        string permission,
+        bool forAsker,
+        CancellationToken cancellationToken)
+    {
+        var group = await GetRoleDisplayNameAsync(granted.ContributingRole, cancellationToken);
+
+        // "All Users" reaches every backoffice user rather than being a group anyone joined, so the reader
+        // is *covered by* it — saying they are "in" it would misdescribe how that group works.
+        var subject = forAsker
+            ? granted.ContributingRole == AdvancedPermissionsConstants.EveryoneRoleAlias
+                ? $"you are covered by the {group} group, which"
+                : $"you are in the {group} user group, which"
+            : $"the {group} user group";
+
+        // A group default carries no source scope, so there is no meaningful node to name.
+        if (granted.IsFromGroupDefault || granted.SourceScope is null)
+        {
+            return $"{subject} is allowed {permission} by its group default";
+        }
+
+        var source = GetNodeName(granted.SourceNodeKey);
+        return granted.IsExplicit
+            ? $"{subject} has an Allow entry on the {permission} permission set directly on {source}"
+            : $"{subject} has an Allow entry on the {permission} permission inherited from {source}";
     }
 
     /// <inheritdoc />
@@ -306,6 +407,10 @@ public sealed class PermissionPresenter(
     private static string GroupsText(IReadOnlyList<string> names) => names.Count switch
     {
         0 => "the relevant user group",
+        // "All Users" is already a group name, and its reach is the whole point of a Deny entry on it —
+        // so name it properly rather than as "the All Users user group", and say what it covers.
+        1 when names[0] == AdvancedPermissionsConstants.EveryoneRoleDisplayName =>
+            $"the {names[0]} group (which covers every backoffice user)",
         1 => $"the {names[0]} user group",
         _ => $"the {Join(names)} user groups",
     };

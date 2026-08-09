@@ -61,13 +61,27 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
   `publish.yml` does the rest. Ask before tagging/pushing (maintainer preference; no auto-commit).
 - **Reference source**: Umbraco v17 backoffice at `C:\GitHub\UmbracoVersions\v17\src\Umbraco.Web.UI.Client`.
   Do not read `node_modules` — use the reference source.
-- **Grounding text mirrors the base package UI**: the grounding line in
+- **Definitions live in a tool; only style lives in the prompt.** `uap_explain_concepts`
+  (`Tools/ExplainConceptsTool.cs`, no args, no I/O) returns the conceptual reference — model, precedence,
+  scopes, Priority Override, Insert Options, backoffice navigation — so its cost is paid only when asked.
+  The always-on `ConceptsGrounding` (~635 tokens) keeps only what a tool *cannot* deliver: terminology and
+  readability rules (they govern every sentence, including paraphrases of other tools' output), the
+  read-only stance, and **a pointer at the tool**. That pointer is load-bearing — the bug it fixes was the
+  model answering confidently and wrongly without realising it needed a reference, so a tool alone would
+  not have fired. `DocumentGrounding` (~300 tokens, tool nudges + `suggestFix`/`GrantedBy`/`Caution` rules)
+  is *appended* on document conversations, making those a strict superset, contributed as one part.
+  When adding a definition, put it in the tool — never back into the prompt (a test enforces this).
+- **Grounding text mirrors the base package UI**: the grounding in
   `Context/AdvancedPermissionsGroundingContributor.cs` hard-codes base-package UI labels and navigation
   (e.g. "Users section", "Content Permissions", "Permissions Editor") so the copilot can explain *how* to
   change permissions in the backoffice. Source of truth is the base repo's
   `src/Umbraco.Community.AdvancedPermissions.Client/help-docs/en/*.md` and `src/.../manifests.ts` (menu/
   section registration). If those labels or the navigation change, update the grounding string and its tests
-  to match.
+  to match. The grounding must also **define** the concepts, not just name them — `help-docs/en/concepts.md`
+  is the definitional source and settles disputes. Two the copilot got wrong when left undefined: *unset*
+  means inherit (there is no `Inherit` state — no entry is stored, and it denies only when nothing up the
+  tree allows), and *Priority Override* is a per-entry flag for when a user's **groups** disagree, **not** an
+  ancestor-versus-descendant conflict. Insert Options invert the default (creatable unless filtered/denied).
 - **Editor-facing terminology**: the copilot must talk like an editor, not the data model. A record is an
   **"entry"** (never a bare "Allow"/"Deny" noun — say "a Deny entry", or verb it: "deleting is denied"); an
   action is a **"permission"** ("the Delete permission", not bare "Delete"); the collections are **"user
@@ -75,3 +89,17 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
   base package's `concepts.md` uses "entry" and not "rule". Enforced in the grounding string
   (`AdvancedPermissionsGroundingContributor`) and the baked sentences in `PermissionPresenter`
   (`ToRemediationAsync`, `BuildFriendlyMessage`, `GroupsText`) — keep both in step, with tests.
+- **Scope strings are label + meaning, both sourced**: `GetScopeText` pairs the Permissions Editor's own
+  dropdown label (base repo `src/.../localization/en.ts` → `scope_thisNodeOnly` etc.) with the plain-English
+  meaning taken verbatim from the base repo's `help-docs/en/concepts.md` — e.g. "This node only (the node
+  itself, not its children)". The label anchors the copilot to what the editor sees on screen; the meaning
+  spares them from knowing what it reaches. Never invent either half. `GetScopeLabel`/`GetScopeGloss` are
+  the private halves; the grounding carries the same three meanings.
+- **A remediation must explain itself**: removing a Deny entry only grants access because something *else*
+  already allows it (an unset permission inherits, and denies only when nothing up the tree allows it), so
+  `PermissionRemediator` captures the deciding Allow from the
+  confirming re-resolution into `RemediationOption.GrantedBy`, and the presenter renders it as the
+  "…because the X user group has an Allow entry …" clause. Never let the copilot assert a removal "would
+  then be allowed" without that clause. `AccessRemediation.Caution` carries the Priority Override warning
+  (it wins even over a Deny entry, so reviewers see a Deny that is silently not in effect) — the grounding
+  requires relaying it and treating removal as the preferred fix.

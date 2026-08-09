@@ -43,32 +43,65 @@ public sealed class AdvancedPermissionsGroundingContributorTests
     }
 
     /// <summary>
-    /// When the focused entity type is not a document (e.g. <c>media</c>), the contributor must not
-    /// contribute anything — the gate keeps the line off non-document conversations.
+    /// On a non-document conversation (e.g. <c>media</c>) the contributor still supplies the concepts
+    /// block, because "what is a priority override?" is a conceptual question an editor can ask from
+    /// anywhere — and with no grounding at all the model invents an answer. The document-only guidance
+    /// (which assumes a focused node and the read tools) must NOT come along.
     /// </summary>
     [Fact]
-    public void Contribute_NonDocumentContext_AppendsNothing()
+    public void Contribute_NonDocumentContext_AppendsConceptsOnly()
     {
         var context = NewContext();
         context.SetValue(Constants.ContextKeys.EntityType, "media");
 
         _contributor.Contribute(context);
 
-        Assert.Empty(context.SystemMessageParts);
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("uap_explain_concepts", grounding, StringComparison.Ordinal);
+        Assert.Contains("Deny entry", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("suggestFix", grounding, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// When no entity type has been set (e.g. a non-entity conversation, or the entity contributor did
-    /// not run), the contributor must not contribute anything.
+    /// When no entity type has been set (a non-entity conversation, or the entity contributor did not
+    /// run), the concepts block is still contributed — this is the case that previously produced a wholly
+    /// ungrounded, invented explanation.
     /// </summary>
     [Fact]
-    public void Contribute_NoEntityType_AppendsNothing()
+    public void Contribute_NoEntityType_AppendsConceptsOnly()
     {
         var context = NewContext();
 
         _contributor.Contribute(context);
 
-        Assert.Empty(context.SystemMessageParts);
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("uap_explain_concepts", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("suggestFix", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A document conversation is a strict SUPERSET: it must carry the concepts block as well as the
+    /// document-specific guidance, in a single part. Splitting the grounding must not cost a document
+    /// conversation any of the conceptual grounding it had before.
+    /// </summary>
+    [Fact]
+    public void Contribute_DocumentContext_CarriesConceptsAndDocumentGuidance()
+    {
+        var documentContext = NewContext();
+        documentContext.SetValue(Constants.ContextKeys.EntityType, "document");
+        var otherContext = NewContext();
+        otherContext.SetValue(Constants.ContextKeys.EntityType, "media");
+
+        _contributor.Contribute(documentContext);
+        _contributor.Contribute(otherContext);
+
+        var document = Assert.Single(documentContext.SystemMessageParts);
+        var concepts = Assert.Single(otherContext.SystemMessageParts);
+
+        // Every concept available elsewhere is still present here, plus the document-only guidance.
+        Assert.Contains(concepts, document, StringComparison.Ordinal);
+        Assert.Contains("uap_explain_access", document, StringComparison.Ordinal);
+        Assert.Contains("suggestFix", document, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -92,13 +125,13 @@ public sealed class AdvancedPermissionsGroundingContributorTests
     }
 
     /// <summary>
-    /// The grounding line must supply the real backoffice navigation to the permissions editor so the
-    /// model's "how do I change this?" answer is accurate. The editor lives in the <b>Users</b> section
-    /// under the <b>Permissions Editor</b> menu item — not the Settings section the model otherwise
-    /// invents. This is the guard against the wrong-menu-path quirk.
+    /// The real backoffice navigation now lives in <c>uap_explain_concepts</c> (asserted by that tool's
+    /// tests), so the grounding must send the model there for it rather than carrying the menu path. The
+    /// original quirk this guards — inventing a Settings-section path — comes back if the model describes
+    /// navigation from memory, so the instruction must forbid exactly that.
     /// </summary>
     [Fact]
-    public void Contribute_DocumentContext_IncludesPermissionsEditorNavigation()
+    public void Contribute_DocumentContext_DefersNavigationToTheConceptsTool()
     {
         var context = NewContext();
         context.SetValue(Constants.ContextKeys.EntityType, "document");
@@ -106,9 +139,9 @@ public sealed class AdvancedPermissionsGroundingContributorTests
         _contributor.Contribute(context);
 
         var grounding = Assert.Single(context.SystemMessageParts);
-        Assert.Contains("Users section", grounding, StringComparison.Ordinal);
-        Assert.Contains("Content Permissions", grounding, StringComparison.Ordinal);
-        Assert.Contains("Permissions Editor", grounding, StringComparison.Ordinal);
+        Assert.Contains("backoffice navigation", grounding, StringComparison.Ordinal);
+        Assert.Contains("from memory", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("Content Permissions", grounding, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -168,6 +201,74 @@ public sealed class AdvancedPermissionsGroundingContributorTests
         var grounding = Assert.Single(context.SystemMessageParts);
         Assert.Contains("a Deny permission", grounding, StringComparison.Ordinal);
         Assert.Contains("the Delete action", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The grounding line must make the answer readable and honest about consequences: relay a
+    /// remediation's Caution, never claim a removal results in access without saying what then grants it,
+    /// write plain prose instead of dumping the tool's fields as a labelled list, and never offer to make
+    /// or arrange a change (not even "would you like an administrator to…").
+    /// </summary>
+    [Fact]
+    public void Contribute_DocumentContext_RequiresCautionPlainProseAndNoArranging()
+    {
+        var context = NewContext();
+        context.SetValue(Constants.ContextKeys.EntityType, "document");
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("Caution", grounding, StringComparison.Ordinal);
+        Assert.Contains("GrantedBy", grounding, StringComparison.Ordinal);
+        Assert.Contains("labelled list", grounding, StringComparison.Ordinal);
+        Assert.Contains("arrange", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The definitions now live in <c>uap_explain_concepts</c>, so the permanent grounding must POINT at
+    /// that tool rather than restate them — and must tell the model not to answer conceptual questions from
+    /// its own knowledge. This pointer is the whole reason the tool works: the failure it fixes was the
+    /// model answering confidently and wrongly without ever realising it needed a reference.
+    /// </summary>
+    [Theory]
+    [InlineData("document")]
+    [InlineData("media")]
+    [InlineData(null)]
+    public void Contribute_AnyContext_PointsAtConceptsToolInsteadOfDefining(string? entityType)
+    {
+        var context = NewContext();
+        if (entityType is not null)
+        {
+            context.SetValue(Constants.ContextKeys.EntityType, entityType);
+        }
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("uap_explain_concepts", grounding, StringComparison.Ordinal);
+        Assert.Contains("own knowledge", grounding, StringComparison.Ordinal);
+
+        // The definitions themselves must NOT be duplicated back into the always-on prompt — that would
+        // reintroduce the per-conversation cost the tool exists to avoid.
+        Assert.DoesNotContain("flag on a single entry", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("creatable by default", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The grounding bans bare Allow/Deny nouns and "role", but never actually told the model not to call
+    /// an entry a "rule" — and in testing the copilot duly described entries as "rules that control…".
+    /// The convention is "entry" (it is the word the base package's own concepts doc uses), so the prompt
+    /// has to say so rather than leaving it implied.
+    /// </summary>
+    [Fact]
+    public void Contribute_AnyContext_BansCallingAnEntryARule()
+    {
+        var context = NewContext();
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("never a 'rule'", grounding, StringComparison.Ordinal);
     }
 
     /// <summary>

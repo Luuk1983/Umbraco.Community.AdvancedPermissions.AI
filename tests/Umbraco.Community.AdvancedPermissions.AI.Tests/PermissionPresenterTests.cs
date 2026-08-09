@@ -115,9 +115,9 @@ public sealed class PermissionPresenterTests
 
     /// <summary>Each scope value maps to friendly text.</summary>
     [Theory]
-    [InlineData(PermissionScope.ThisNodeOnly, "This node only")]
-    [InlineData(PermissionScope.ThisNodeAndDescendants, "This node and descendants")]
-    [InlineData(PermissionScope.DescendantsOnly, "Descendants only")]
+    [InlineData(PermissionScope.ThisNodeOnly, "This node only (the node itself, not its children)")]
+    [InlineData(PermissionScope.ThisNodeAndDescendants, "This node and descendants (the node and everything beneath it)")]
+    [InlineData(PermissionScope.DescendantsOnly, "Descendants only (the children but not the node itself)")]
     public void Scope_MapsToFriendlyText(PermissionScope scope, string expected)
     {
         var sut = CreateSut();
@@ -226,7 +226,7 @@ public sealed class PermissionPresenterTests
         var first = verdict.Reasons[0];
         Assert.Equal("Editors", first.Role);
         Assert.Equal("Denied", first.Decision);
-        Assert.Equal("This node only", first.Scope);
+        Assert.Equal("This node only (the node itself, not its children)", first.Scope);
         Assert.Equal("News", first.SetOn);
         Assert.False(first.Inherited);
         Assert.True(first.PriorityOverride);
@@ -234,7 +234,7 @@ public sealed class PermissionPresenterTests
         var second = verdict.Reasons[1];
         Assert.Equal("All Users", second.Role);
         Assert.Equal("Allowed", second.Decision);
-        Assert.Equal("This node and descendants", second.Scope);
+        Assert.Equal("This node and descendants (the node and everything beneath it)", second.Scope);
         Assert.Equal("All content (root-level default)", second.SetOn);
         Assert.True(second.Inherited);
         Assert.False(second.PriorityOverride);
@@ -373,6 +373,233 @@ public sealed class PermissionPresenterTests
     }
 
     /// <summary>
+    /// A "remove the Deny entry" remediation must explain WHY the permission ends up allowed, naming the
+    /// user group and the entry that take over once the Deny is gone. Without this the sentence asserts an
+    /// outcome an editor cannot verify — and which only holds because some other entry grants it, since
+    /// the resolver defaults to deny.
+    /// </summary>
+    [Fact]
+    public async Task ToRemediation_RemoveDeny_ExplainsWhatGrantsItAfterwards()
+    {
+        var nodeKey = Guid.NewGuid();
+        var ancestorKey = Guid.NewGuid();
+        SetupGroups(Group("admins", "Administrators"));
+        SetupNode(nodeKey, "People");
+        SetupNode(ancestorKey, "Home");
+        var sut = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+
+        var option = new RemediationOption(
+            RemediationActionKind.RemoveDeny,
+            AdvancedPermissionsConstants.EveryoneRoleAlias,
+            AdvancedPermissionsConstants.VerbDelete,
+            nodeKey,
+            Scope: null,
+            RemovedRoleAliases: [AdvancedPermissionsConstants.EveryoneRoleAlias],
+            GrantedBy: new PermissionReasoning(
+                "admins",
+                PermissionState.Allow,
+                IsExplicit: false,
+                SourceNodeKey: ancestorKey,
+                SourceScope: PermissionScope.ThisNodeAndDescendants,
+                IsFromGroupDefault: false));
+
+        var friendly = await sut.ToRemediationAsync(option);
+
+        Assert.Contains("because", friendly.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Administrators", friendly.Description, StringComparison.Ordinal);
+        Assert.Contains("Home", friendly.Description, StringComparison.Ordinal);
+        Assert.NotNull(friendly.GrantedBy);
+        Assert.Contains("Administrators", friendly.GrantedBy!, StringComparison.Ordinal);
+        // A removal is the least-privileged fix; it carries no caution.
+        Assert.Null(friendly.Caution);
+    }
+
+    /// <summary>
+    /// An "add an entry" remediation must state the scope in prose with its plain-English meaning
+    /// attached, rather than the terse "(scope: This node only)" parenthetical — an editor should not have
+    /// to already know what a scope name implies. The label is kept verbatim as the anchor to the
+    /// Permissions Editor's scope dropdown, and the meaning comes from the base package's own concepts doc.
+    /// </summary>
+    [Fact]
+    public async Task ToRemediation_Add_StatesScopeWithItsMeaningInProse()
+    {
+        var nodeKey = Guid.NewGuid();
+        SetupGroups(Group("editors", "Editors"));
+        SetupNode(nodeKey, "News");
+        var sut = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+
+        var option = new RemediationOption(
+            RemediationActionKind.AddAllowOnNode,
+            "editors",
+            AdvancedPermissionsConstants.VerbPublish,
+            nodeKey,
+            PermissionScope.ThisNodeOnly,
+            RemovedRoleAliases: []);
+
+        var friendly = await sut.ToRemediationAsync(option);
+
+        Assert.Contains("This node only", friendly.Description, StringComparison.Ordinal);
+        Assert.Contains("the node itself, not its children", friendly.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("(scope:", friendly.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// "All Users" is already a group name, so the generic "the {name} user group" template renders the
+    /// clumsy "the All Users user group". It also assumes the reader knows that group reaches everyone —
+    /// the very thing that makes a Deny entry on it so consequential. Both are fixed by naming it properly
+    /// and glossing it once.
+    /// </summary>
+    [Fact]
+    public async Task ToRemediation_RemoveDenyOnAllUsers_ReadsNaturallyAndExplainsTheGroup()
+    {
+        var nodeKey = Guid.NewGuid();
+        SetupNode(nodeKey, "People");
+        var sut = CreateSut();
+
+        var option = new RemediationOption(
+            RemediationActionKind.RemoveDeny,
+            AdvancedPermissionsConstants.EveryoneRoleAlias,
+            AdvancedPermissionsConstants.VerbDelete,
+            nodeKey,
+            Scope: null,
+            RemovedRoleAliases: [AdvancedPermissionsConstants.EveryoneRoleAlias]);
+
+        var friendly = await sut.ToRemediationAsync(option);
+
+        Assert.DoesNotContain("All Users user group", friendly.Description, StringComparison.Ordinal);
+        Assert.Contains("All Users group", friendly.Description, StringComparison.Ordinal);
+        Assert.Contains("every backoffice user", friendly.Description, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// When the question is about the asker themselves, the grant must be addressed to them directly
+    /// ("you are in the Administrators user group…") rather than stated impersonally. For the current-user
+    /// subject the granting group is, by construction, one the asker belongs to — the remediation is
+    /// resolved with exactly that user's groups — so naming it in the third person makes the reader work
+    /// out that it applies to them.
+    /// </summary>
+    [Fact]
+    public async Task ToRemediation_ForAsker_AddressesTheUserDirectly()
+    {
+        var nodeKey = Guid.NewGuid();
+        SetupGroups(Group("admins", "Administrators"));
+        SetupNode(nodeKey, "People");
+        var sut = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+
+        var option = new RemediationOption(
+            RemediationActionKind.RemoveDeny,
+            AdvancedPermissionsConstants.EveryoneRoleAlias,
+            AdvancedPermissionsConstants.VerbDelete,
+            nodeKey,
+            Scope: null,
+            RemovedRoleAliases: [AdvancedPermissionsConstants.EveryoneRoleAlias],
+            GrantedBy: new PermissionReasoning(
+                "admins",
+                PermissionState.Allow,
+                IsExplicit: true,
+                SourceNodeKey: nodeKey,
+                SourceScope: PermissionScope.ThisNodeOnly,
+                IsFromGroupDefault: false));
+
+        var friendly = await sut.ToRemediationAsync(option, forAsker: true);
+
+        Assert.Contains("you are in the Administrators user group", friendly.GrantedBy!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("you are in the Administrators user group", friendly.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The All Users group reaches every backoffice user rather than being one the asker joined, so the
+    /// second-person wording must say they are <i>covered by</i> it, not a member of it.
+    /// </summary>
+    [Fact]
+    public async Task ToRemediation_ForAsker_GrantedByAllUsers_SaysCoveredBy()
+    {
+        var nodeKey = Guid.NewGuid();
+        SetupNode(nodeKey, "People");
+        var sut = CreateSut();
+
+        var option = new RemediationOption(
+            RemediationActionKind.RemoveDeny,
+            "editors",
+            AdvancedPermissionsConstants.VerbDelete,
+            nodeKey,
+            Scope: null,
+            RemovedRoleAliases: ["editors"],
+            GrantedBy: new PermissionReasoning(
+                AdvancedPermissionsConstants.EveryoneRoleAlias,
+                PermissionState.Allow,
+                IsExplicit: true,
+                SourceNodeKey: nodeKey,
+                SourceScope: PermissionScope.ThisNodeOnly,
+                IsFromGroupDefault: false));
+
+        var friendly = await sut.ToRemediationAsync(option, forAsker: true);
+
+        Assert.Contains("covered by the All Users group", friendly.GrantedBy!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("you are in the All Users", friendly.GrantedBy!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// When the question is about somebody else (a named user, or a user group), the wording must stay in
+    /// the third person — addressing the reader as the grantee would be plainly wrong.
+    /// </summary>
+    [Fact]
+    public async Task ToRemediation_NotForAsker_StaysImpersonal()
+    {
+        var nodeKey = Guid.NewGuid();
+        SetupGroups(Group("admins", "Administrators"));
+        SetupNode(nodeKey, "People");
+        var sut = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+
+        var option = new RemediationOption(
+            RemediationActionKind.RemoveDeny,
+            AdvancedPermissionsConstants.EveryoneRoleAlias,
+            AdvancedPermissionsConstants.VerbDelete,
+            nodeKey,
+            Scope: null,
+            RemovedRoleAliases: [AdvancedPermissionsConstants.EveryoneRoleAlias],
+            GrantedBy: new PermissionReasoning(
+                "admins",
+                PermissionState.Allow,
+                IsExplicit: true,
+                SourceNodeKey: nodeKey,
+                SourceScope: PermissionScope.ThisNodeOnly,
+                IsFromGroupDefault: false));
+
+        var friendly = await sut.ToRemediationAsync(option);
+
+        Assert.Contains("the Administrators user group has an Allow entry", friendly.GrantedBy!, StringComparison.Ordinal);
+        Assert.DoesNotContain("you are in", friendly.GrantedBy!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A priority-override remediation must ALWAYS carry a caution: an override wins even over a Deny
+    /// entry, so it is the heaviest change and makes the effective permissions harder to review later.
+    /// It must never be presented as an equal-footing alternative to simply removing the Deny entry.
+    /// </summary>
+    [Fact]
+    public async Task ToRemediation_PriorityOverrideAllow_AlwaysCarriesCaution()
+    {
+        var nodeKey = Guid.NewGuid();
+        SetupGroups(Group("editors", "Editors"));
+        SetupNode(nodeKey, "News");
+        var sut = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+
+        var option = new RemediationOption(
+            RemediationActionKind.AddPriorityOverrideAllow,
+            "editors",
+            AdvancedPermissionsConstants.VerbPublish,
+            nodeKey,
+            PermissionScope.ThisNodeOnly,
+            RemovedRoleAliases: []);
+
+        var friendly = await sut.ToRemediationAsync(option);
+
+        Assert.NotNull(friendly.Caution);
+        Assert.Contains("sparingly", friendly.Caution!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// A priority-override Allow remediation projects to the "Override" change verb, names the friendly
     /// scope, and leaks no raw identifiers.
     /// </summary>
@@ -397,7 +624,7 @@ public sealed class PermissionPresenterTests
         Assert.Equal("Override", friendly.Action);
         Assert.Equal("Publish", friendly.Permission);
         Assert.Equal("Editors", friendly.Role);
-        Assert.Equal("This node only", friendly.Scope);
+        Assert.Equal("This node only (the node itself, not its children)", friendly.Scope);
         // Editor-grounded terminology, including naming the conflicting entry it overrides.
         Assert.Contains("Allow entry", friendly.Description, StringComparison.Ordinal);
         Assert.Contains("Deny entry", friendly.Description, StringComparison.Ordinal);

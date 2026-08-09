@@ -82,6 +82,50 @@ public sealed class PermissionRemediatorTests
     }
 
     /// <summary>
+    /// A confirmed "remove the Deny" option must carry the grant that TAKES OVER once the Deny is gone.
+    /// Removing a Deny only helps because something else allows the verb (the resolver defaults to Deny),
+    /// so the option has to name that grant — otherwise the copilot can only assert "it would then be
+    /// allowed" without being able to say what allows it, which is unverifiable for an editor.
+    /// </summary>
+    [Fact]
+    public async Task RemoveDeny_CarriesTheGrantThatTakesOver()
+    {
+        var root = Guid.NewGuid();
+        var target = Guid.NewGuid();
+        SetupEntries(
+            Entry(target, "editors", PermissionState.Deny, PermissionScope.ThisNodeOnly),
+            Entry(AdvancedPermissionsConstants.VirtualRootNodeKey, AdvancedPermissionsConstants.EveryoneRoleAlias, PermissionState.Allow, PermissionScope.ThisNodeAndDescendants));
+
+        var options = await CreateSut().SuggestAsync(
+            target, [root, target], ["editors", AdvancedPermissionsConstants.EveryoneRoleAlias],
+            Verb, PermissionState.Deny, CancellationToken.None);
+
+        var remove = Assert.Single(options, o => o.Kind == RemediationActionKind.RemoveDeny);
+        Assert.NotNull(remove.GrantedBy);
+        Assert.Equal(PermissionState.Allow, remove.GrantedBy!.State);
+        Assert.Equal(AdvancedPermissionsConstants.EveryoneRoleAlias, remove.GrantedBy.ContributingRole);
+    }
+
+    /// <summary>
+    /// An "add an entry" option needs no grant explanation — the entry being added is itself the grant —
+    /// so <see cref="RemediationOption.GrantedBy"/> stays null and the presenter adds no "because" clause.
+    /// </summary>
+    [Fact]
+    public async Task AddOption_CarriesNoGrantExplanation()
+    {
+        var root = Guid.NewGuid();
+        var target = Guid.NewGuid();
+        SetupEntries(Entry(root, "editors", PermissionState.Deny, PermissionScope.ThisNodeAndDescendants));
+
+        var options = await CreateSut().SuggestAsync(
+            target, [root, target], ["editors"], Verb, PermissionState.Deny, CancellationToken.None);
+
+        Assert.All(
+            options.Where(o => o.Kind != RemediationActionKind.RemoveDeny),
+            o => Assert.Null(o.GrantedBy));
+    }
+
+    /// <summary>
     /// Override-vs-override: a competing priority-override Deny on the node defeats any priority-override
     /// Allow (Deny wins among flagged survivors), so the override-Allow candidate is rejected. Removing
     /// the contributing denies is still valid.

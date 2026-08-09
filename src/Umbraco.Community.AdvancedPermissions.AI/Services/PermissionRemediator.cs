@@ -102,7 +102,13 @@ public sealed class PermissionRemediator(
             var result = Resolve(mutated, nodeKey, pathFromRoot, roleAliases, verb, defaultState, ref resolveBudget);
             if (result is { IsAllowed: true })
             {
-                confirmed.Add(candidate.Option);
+                // For a removal, capture what decides the verdict once the Deny entries are gone. The
+                // resolver defaults to Deny, so a removal only works because something else already
+                // allows the verb — naming it lets the answer explain WHY the fix works instead of
+                // merely asserting the outcome. Additions are their own grant, so they carry nothing.
+                confirmed.Add(candidate.Option.Kind == RemediationActionKind.RemoveDeny
+                    ? candidate.Option with { GrantedBy = DecidingAllow(result) }
+                    : candidate.Option);
             }
         }
 
@@ -153,6 +159,16 @@ public sealed class PermissionRemediator(
 
         return resolver.Resolve(context, verb);
     }
+
+    /// <summary>
+    /// Picks the Allow reasoning line that decides a confirmed (Allowed) re-resolution — i.e. the grant
+    /// that takes over once the contributing Deny entries are removed. Reasoning is ordered
+    /// highest-priority-first, so the first Allow line is the deciding one.
+    /// </summary>
+    /// <param name="result">The confirmed re-resolution to read the deciding grant from.</param>
+    /// <returns>The deciding Allow reasoning line, or <see langword="null"/> when none is present.</returns>
+    private static PermissionReasoning? DecidingAllow(EffectivePermission result) =>
+        result.Reasoning.FirstOrDefault(r => r.State == PermissionState.Allow);
 
     /// <summary>
     /// Classifies the baseline denial from its reasoning chain and produces the case-specific candidate

@@ -47,11 +47,15 @@ public sealed class AuditPermissionsTool(
     /// <inheritdoc />
     public override string Description =>
         "Scan stored permission configuration for risks, conflicts and over-broad grants " +
-        "(over-broad grants to All Users, Allow/Deny conflicts, risky 'this node and descendants' rules, priority overrides). " +
-        "Set `scope`: role (all entries for one role — default), subtree (everything under a node), or all (whole config). " +
+        "(over-broad grants to All Users, conflicting Allow and Deny entries, risky 'this node and descendants' " +
+        "entries, Priority Override entries). " +
+        "Set `scope`: `role` (every entry for one user group — the default, and it requires `roleAlias`), " +
+        "`subtree` (everything under a node, requires `nodeKey`), or `all` (the whole configuration, needs nothing else). " +
         "Optionally filter by minimum severity. " +
-        "Use for 'audit/review the permissions for role X', 'any risks under /News?', 'is anything misconfigured?'. " +
-        "Note: 'all' is best-effort — it sweeps every live document node plus the root-level defaults, so entries " +
+        "Use for 'audit/review the permissions for the Editors user group' (scope=role), 'any risks under /News?' " +
+        "(scope=subtree), or 'is anything misconfigured?' / any site-wide question (scope=all — do not leave the " +
+        "default in place for these, it will fail without a user group). " +
+        "Note: `all` is best-effort — it sweeps every live document node plus the root-level defaults, so entries " +
         "left behind on deleted/trashed nodes are not included.";
 
     /// <inheritdoc />
@@ -84,7 +88,7 @@ public sealed class AuditPermissionsTool(
             case AuditScope.Role:
                 if (string.IsNullOrWhiteSpace(args.RoleAlias))
                 {
-                    return (null, new AccessError("A role is required when auditing a single role."));
+                    return (null, new AccessError("A roleAlias is required when auditing a single user group — or set scope to 'all' to audit the whole configuration."));
                 }
 
                 return (await repository.GetByRoleAsync(args.RoleAlias, cancellationToken), null);
@@ -92,7 +96,7 @@ public sealed class AuditPermissionsTool(
             case AuditScope.Subtree:
                 if (args.NodeKey is null)
                 {
-                    return (null, new AccessError("A node is required when auditing a subtree."));
+                    return (null, new AccessError("A nodeKey is required when auditing a subtree."));
                 }
 
                 var subtreeKeys = GatherSubtreeKeys(args.NodeKey.Value);

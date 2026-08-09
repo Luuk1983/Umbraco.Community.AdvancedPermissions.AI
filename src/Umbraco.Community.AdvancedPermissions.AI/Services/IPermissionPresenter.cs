@@ -29,9 +29,14 @@ public interface IPermissionPresenter
     /// <returns>The friendly action name.</returns>
     string GetVerbDisplayName(string verb);
 
-    /// <summary>Converts a permission scope to friendly text.</summary>
+    /// <summary>
+    /// Converts a permission scope to friendly text: the Permissions Editor's own label followed by its
+    /// plain-English meaning, e.g. "This node only (the node itself, not its children)". The label anchors
+    /// the wording to what the editor sees in the scope dropdown; the meaning spares them from having to
+    /// know what it reaches.
+    /// </summary>
     /// <param name="scope">The scope to convert.</param>
-    /// <returns>The friendly scope text.</returns>
+    /// <returns>The friendly scope text, label and meaning together.</returns>
     string GetScopeText(PermissionScope scope);
 
     /// <summary>Converts a permission state to friendly text ("Allowed" or "Denied").</summary>
@@ -94,9 +99,18 @@ public interface IPermissionPresenter
     /// verdict to Allowed — so the wording states the outcome positively.
     /// </summary>
     /// <param name="option">The confirmed remediation option to project.</param>
+    /// <param name="forAsker">
+    /// <see langword="true"/> when the remediation explains the asker's <i>own</i> access, so the grant is
+    /// addressed to them directly ("you are in the Administrators user group, which…") instead of being
+    /// stated impersonally. Only set for the current-user subject, where the granting group is by
+    /// construction one the asker belongs to — the remediation is simulated with exactly that user's groups.
+    /// </param>
     /// <param name="cancellationToken">Token to support cancellation.</param>
     /// <returns>The friendly remediation.</returns>
-    Task<AccessRemediation> ToRemediationAsync(RemediationOption option, CancellationToken cancellationToken = default);
+    Task<AccessRemediation> ToRemediationAsync(
+        RemediationOption option,
+        bool forAsker = false,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Maps a verb-to-effective-permission dictionary and a node key to a friendly

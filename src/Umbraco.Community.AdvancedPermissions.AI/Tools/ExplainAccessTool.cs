@@ -52,18 +52,19 @@ public sealed class ExplainAccessTool(
     /// <inheritdoc />
     public override string Description =>
         "Answer 'what is the effective permission decision, and why' for a content node. " +
-        "Set `subject`: current-user (the editor asking about themselves — 'why can't I publish/delete/edit this?'), " +
-        "user (a specific user), role (a user group or 'All Users' — 'what can Editors do here?'), " +
-        "or all-roles ('who can publish/edit/delete here?'). " +
+        "Set `subject`: `current-user` (the editor asking about themselves — 'why can't I publish/delete/edit this?'), " +
+        "`user` (one specific user), `role` (one user group, or 'All Users' — 'what can Editors do here?'), " +
+        "or `all-roles` (every user group — 'who can publish/edit/delete here?'). " +
         "Call this FIRST whenever someone can't perform an action or the editor looks restricted: " +
         "fields read-only / can't save, can't trash/delete, Publish/Unpublish disabled, can't move/copy/sort/rollback, " +
         "can't set notifications / culture & hostnames / public access, or Create is missing. " +
-        "A permission Deny is a common, invisible cause — don't attribute a block to a structural reason " +
+        "A Deny entry is a common, invisible cause — don't attribute a block to a structural reason " +
         "(root node, content type) before checking this. " +
-        "Returns each action's Allowed/Denied result with the reason (which role and node; explicit vs inherited). " +
-        "Set suggestFix=true (with a single verb, node aspect, and the current-user/user/role subject) to also get the " +
-        "concrete, confirmed permission changes that would grant a denied action — computed by simulating them against " +
-        "the resolver, so do NOT guess fixes yourself (a plain Allow cannot beat a same-node Deny). " +
+        "Returns each permission's Allowed/Denied result with the reason (which user group and node, and whether the " +
+        "entry is set directly on the node or inherited). " +
+        "Set suggestFix=true (with a single verb, node aspect, and the `current-user`/`user`/`role` subject) to also get " +
+        "the concrete, confirmed changes that would grant a denied permission — computed by simulating them against " +
+        "the resolver, so do NOT guess fixes yourself (a plain Allow entry cannot beat a Deny entry on the same node). " +
         "This is READ-ONLY: it describes the entries a human must add in the backoffice Permissions Editor; it never " +
         "applies them, and you cannot apply or change permissions — never offer to. " +
         "Set aspect=type-create for 'why can't I create/insert document type X here?', 'what document types can I create here?', " +
@@ -137,7 +138,7 @@ public sealed class ExplainAccessTool(
     {
         if (args.UserKey is null)
         {
-            return new AccessError("A user key is required when explaining access for a specific user.");
+            return new AccessError("A userKey is required when explaining access for a specific user.");
         }
 
         return await ResolveForUserAsync(args.UserKey.Value, args, path, cancellationToken);
@@ -184,7 +185,7 @@ public sealed class ExplainAccessTool(
     {
         if (string.IsNullOrWhiteSpace(args.RoleAlias))
         {
-            return new AccessError("A role is required when explaining access for a specific role.");
+            return new AccessError("A roleAlias is required when explaining access for a single user group.");
         }
 
         var verbs = string.IsNullOrWhiteSpace(args.Verb) ? null : new[] { args.Verb };
@@ -369,10 +370,15 @@ public sealed class ExplainAccessTool(
             return verdict;
         }
 
+        // Only the current-user subject is the asker themselves, so only there may the grant be phrased in
+        // the second person. The role set used above is exactly that user's groups, so any granting group
+        // in the confirmed result is one that applies to them.
+        var forAsker = args.Subject == ExplainSubject.CurrentUser;
+
         var friendly = new List<AccessRemediation>(options.Count);
         foreach (var option in options)
         {
-            friendly.Add(await presenter.ToRemediationAsync(option, cancellationToken));
+            friendly.Add(await presenter.ToRemediationAsync(option, forAsker, cancellationToken));
         }
 
         return verdict with { Remediations = friendly };
@@ -482,7 +488,7 @@ public sealed class ExplainAccessTool(
     {
         if (userKey is null)
         {
-            return new AccessError("A user key is required when explaining access for a specific user.");
+            return new AccessError("A userKey is required when explaining access for a specific user.");
         }
 
         return await TypeCreateForUserAsync(userKey.Value, args, path, allowedChildren, cancellationToken);
@@ -538,7 +544,7 @@ public sealed class ExplainAccessTool(
     {
         if (string.IsNullOrWhiteSpace(args.RoleAlias))
         {
-            return new AccessError("A role is required when explaining access for a specific role.");
+            return new AccessError("A roleAlias is required when explaining access for a single user group.");
         }
 
         IReadOnlyList<string> roleAliases = [args.RoleAlias, AdvancedPermissionsConstants.EveryoneRoleAlias];
