@@ -41,18 +41,18 @@ public sealed record TypeCreateExplanation(
 /// <see langword="false"/> when the document type is structurally not an allowed child of the parent
 /// (regardless of permissions); the allowed/denied rosters are empty in that case.
 /// </param>
-/// <param name="AllowedRoles">The display names of roles whose effective create permission for the type is allowed.</param>
-/// <param name="DeniedRoles">The display names of roles whose effective create permission for the type is denied.</param>
+/// <param name="AllowedUserGroups">The display names of user groups whose effective create permission for the type is allowed.</param>
+/// <param name="DeniedUserGroups">The display names of user groups whose effective create permission for the type is denied.</param>
 public sealed record TypeCreateRoster(
     string DocumentType,
     string Node,
     bool IsApplicable,
-    IReadOnlyList<string> AllowedRoles,
-    IReadOnlyList<string> DeniedRoles);
+    IReadOnlyList<string> AllowedUserGroups,
+    IReadOnlyList<string> DeniedUserGroups);
 
 /// <summary>
 /// A friendly roster report covering several document types under a parent node: one
-/// <see cref="TypeCreateRoster"/> per evaluated document type. Used for the all-roles type-create
+/// <see cref="TypeCreateRoster"/> per evaluated document type. Used for the all-user-groups type-create
 /// roster (who can create each type here).
 /// </summary>
 /// <param name="Node">The friendly name of the parent node under which creation was evaluated.</param>

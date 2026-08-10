@@ -32,7 +32,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Context;
 /// superset and never loses grounding to the split.
 /// </para>
 /// <para>
-/// This contributor follows a strict defensive pattern, because Umbraco AI 1.14.0 runs every contributor
+/// This contributor follows a strict defensive pattern, because Umbraco AI runs every contributor
 /// on every agent run with <b>no</b> try/catch around them — an exception thrown here would abort the
 /// whole agent run:
 /// </para>
@@ -101,6 +101,10 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
         "instead say who can make it, and offer to explain the options. When the user needs to know how to make " +
         "the change themselves, call uap_explain_concepts for the exact backoffice navigation rather than " +
         "describing a menu path from memory. " +
+        "Never state a permission result you have not just retrieved from a tool. If a lookup fails or a node " +
+        "cannot be resolved, say so and ask for what you need — do not carry a result over from another node, " +
+        "and do not infer one. If you reason to a likely cause, label it as unconfirmed and say what you would " +
+        "need to confirm it. " +
         "You cannot see why, when, or by whom an entry was created — the package stores the entry, not the " +
         "intent. Say so plainly rather than guessing.";
 

@@ -272,6 +272,23 @@ public sealed class AdvancedPermissionsGroundingContributorTests
     }
 
     /// <summary>
+    /// Observed in the wild: the copilot stated a permission result for a node it had never queried
+    /// ("I can see the Delete permission on it: you're denied on this page too"), after a content tool
+    /// failed and it could not retrieve the node. Calling the tool "first" was already instructed; what
+    /// was missing is the flat prohibition on asserting a result you have not actually retrieved.
+    /// </summary>
+    [Fact]
+    public void Contribute_AnyContext_ForbidsAssertingAnUnretrievedResult()
+    {
+        var context = NewContext();
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("never state a permission result", grounding, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The contributor is append-only: even on a document context it must leave the
     /// <see cref="AIRuntimeContext.Variables"/> and <see cref="AIRuntimeContext.Data"/> bags untouched
     /// (it must not call <see cref="AIRuntimeContext.SetValue(string, object?)"/> itself). The only

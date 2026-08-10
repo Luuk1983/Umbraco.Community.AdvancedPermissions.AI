@@ -9,6 +9,7 @@
 // Tool id -> camelCase mapping (split on [-_.\s]+, first segment lowercased):
 //   uap_explain_access     -> uapExplainAccess
 //   uap_audit_permissions  -> uapAuditPermissions
+//   uap_explain_concepts   -> uapExplainConcepts
 //
 // Scope id `advanced-permissions:read` -> `advancedPermissions:read` (the colon
 // is NOT a separator and survives camelCasing), giving the quoted scope key below.
@@ -22,7 +23,10 @@ export default {
       "Explain who can do what on a content node — and why — including read-only / can't-delete diagnoses and which document types can be created here.",
     uapAuditPermissionsLabel: 'Audit permissions',
     uapAuditPermissionsDescription:
-      "Scan a role's, a subtree's, or the whole site's permission setup for risks and conflicts.",
+      "Scan a user group's, a subtree's, or the whole site's permission setup for risks and conflicts.",
+    uapExplainConceptsLabel: 'Explain permission concepts',
+    uapExplainConceptsDescription:
+      'Explain how this site’s permissions work — Allow/Deny entries, precedence, scopes, inheritance, Priority Override, Insert Options, and where to change a permission in the backoffice.',
   },
   uaiToolScope: {
     'advancedPermissions:readLabel': 'Advanced Permissions (read)',

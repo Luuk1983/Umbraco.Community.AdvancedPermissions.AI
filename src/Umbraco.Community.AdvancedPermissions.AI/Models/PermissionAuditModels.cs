@@ -41,14 +41,14 @@ public sealed record AuditReport(
 /// <param name="RuleId">Stable identifier of the rule that produced the finding.</param>
 /// <param name="Severity">How serious the finding is, as text ("Info", "Warning", "Risk").</param>
 /// <param name="Message">Human-readable explanation, free of raw aliases/verbs/GUIDs.</param>
-/// <param name="Role">The friendly role name the finding relates to, if any.</param>
+/// <param name="UserGroup">The friendly user group name the finding relates to, if any.</param>
 /// <param name="Permission">The friendly permission name (the action being controlled) the finding relates to, if any.</param>
 /// <param name="Node">The friendly node name the finding relates to, if any.</param>
 public sealed record FriendlyAuditFinding(
     string RuleId,
     string Severity,
     string Message,
-    string? Role = null,
+    string? UserGroup = null,
     string? Permission = null,
     string? Node = null);
 

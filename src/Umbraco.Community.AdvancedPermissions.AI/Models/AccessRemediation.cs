@@ -14,7 +14,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// on News — after which the Delete permission would be allowed."
 /// </param>
 /// <param name="Action">The friendly change verb: "Remove", "Add", or "Override".</param>
-/// <param name="Role">The friendly role the change targets (e.g. "Editors", "All Users").</param>
+/// <param name="UserGroup">The friendly user group the change targets (e.g. "Editors", "All Users").</param>
 /// <param name="Permission">The friendly action the change is about (e.g. "Delete", "Publish").</param>
 /// <param name="Scope">
 /// The friendly scope of the entry to add — the Permissions Editor's label with its plain-English meaning
@@ -38,7 +38,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 public sealed record AccessRemediation(
     string Description,
     string Action,
-    string Role,
+    string UserGroup,
     string Permission,
     string? Scope,
     string SetOn,

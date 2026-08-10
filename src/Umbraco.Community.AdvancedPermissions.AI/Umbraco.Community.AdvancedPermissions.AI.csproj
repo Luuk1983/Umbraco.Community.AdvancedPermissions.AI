@@ -18,7 +18,7 @@
     <Title>Advanced Permissions for Umbraco — AI Copilot Tools</Title>
     <Authors>Luuk Peters</Authors>
     <Copyright>Copyright (c) Luuk Peters</Copyright>
-    <Description>Optional AI companion for Umbraco.Community.AdvancedPermissions. Exposes Umbraco AI copilot tools that explain effective permissions, find which user groups can access a node, and audit permission configuration.</Description>
+    <Description>Optional AI companion for Umbraco.Community.AdvancedPermissions. Exposes read-only Umbraco AI copilot tools that explain effective permissions, find which user groups can access a node, audit permission configuration, and explain how the permission model works.</Description>
     <PackageTags>umbraco;permissions;cms;ai;copilot;umbraco-marketplace</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>

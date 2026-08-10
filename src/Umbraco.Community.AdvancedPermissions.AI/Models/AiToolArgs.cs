@@ -13,11 +13,11 @@ public enum ExplainSubject
     /// <summary>A specific user identified by their key.</summary>
     User,
 
-    /// <summary>A single role (user group, or the special "All Users" role).</summary>
-    Role,
+    /// <summary>A single user group, or the special "All Users" group.</summary>
+    UserGroup,
 
-    /// <summary>Every assignable role, partitioned into who is allowed and who is denied.</summary>
-    AllRoles,
+    /// <summary>Every assignable user group, partitioned into who is allowed and who is denied.</summary>
+    AllUserGroups,
 }
 
 /// <summary>
@@ -54,30 +54,34 @@ public enum ExplainResponseFormat
 
 /// <summary>
 /// Arguments for the consolidated <c>uap_explain_access</c> tool. A single parameterized shape covers
-/// explaining access for the current user, a specific user, a single role, or all roles at a content node.
+/// explaining access for the current user, a specific user, a single user group, or every user group at a
+/// content node.
 /// </summary>
 /// <param name="Subject">Whose access to evaluate.</param>
 /// <param name="NodeKey">The content node to evaluate access at.</param>
 /// <param name="UserKey">The user key; required when <see cref="ExplainSubject.User"/> is chosen.</param>
-/// <param name="RoleAlias">The role alias (accepts '$everyone'); required when <see cref="ExplainSubject.Role"/> is chosen.</param>
+/// <param name="UserGroupAlias">
+/// The user group alias (accepts '$everyone'); required when <see cref="ExplainSubject.UserGroup"/> is
+/// chosen. Carries the value the base package calls a role alias.
+/// </param>
 /// <param name="Verb">Optional single verb to focus on; omit to evaluate all standard verbs.</param>
 /// <param name="ResponseFormat">How much reasoning detail to return.</param>
 /// <param name="Aspect">Which dimension of access to explain: node action permissions, or document-type creation.</param>
 /// <param name="ContentTypeKey">Optional document type to focus on when <see cref="ExplainAspect.TypeCreate"/> is chosen.</param>
 /// <param name="SuggestFix">
 /// When <see langword="true"/> and access is denied, also return the concrete, confirmed permission
-/// changes that would grant it. Only honoured for the node aspect, the current-user/user/role subjects,
-/// and when a single <see cref="Verb"/> is supplied.
+/// changes that would grant it. Only honoured for the node aspect, the current-user/user/user-group
+/// subjects, and when a single <see cref="Verb"/> is supplied.
 /// </param>
 public sealed record ExplainAccessArgs(
-    [property: Description("Whose access to evaluate: current-user (the editor asking about themselves), user (a specific user, requires userKey), role (a user group or 'All Users', requires roleAlias), or all-roles (who can/can't do this).")]
+    [property: Description("Whose access to evaluate: current-user (the editor asking about themselves), user (a specific user, requires userKey), user-group (one user group or 'All Users', requires userGroupAlias), or all-user-groups (who can/can't do this).")]
     ExplainSubject Subject,
     [property: Description("The GUID key of the content node to evaluate access at. For aspect=type-create this is the PARENT node under which creation is evaluated.")]
     Guid NodeKey,
     [property: Description("The GUID key of the user to evaluate. Required when subject is 'user'.")]
     Guid? UserKey = null,
-    [property: Description("The role or user-group alias to evaluate, or '$everyone' for All Users. Required when subject is 'role'.")]
-    string? RoleAlias = null,
+    [property: Description("The user group alias to evaluate, or '$everyone' for All Users. Required when subject is 'user-group'.")]
+    string? UserGroupAlias = null,
     [property: Description("Optional verb such as 'Umb.Document.Delete' to focus on a single action. Omit to evaluate all actions. Ignored when aspect is 'type-create'.")]
     string? Verb = null,
     [property: Description("How much detail to return: concise (decision plus one summary reason per action) or detailed (full reasoning chain).")]
@@ -94,28 +98,32 @@ public sealed record ExplainAccessArgs(
 /// </summary>
 public enum AuditScope
 {
-    /// <summary>Audit every stored entry for a single role across the whole tree (requires a role alias).</summary>
-    Role,
+    /// <summary>Audit every stored entry for a single user group across the whole tree (requires an alias).</summary>
+    UserGroup,
 
     /// <summary>Audit every stored entry on a node and all of its descendant document nodes (requires a node key).</summary>
     Subtree,
 
-    /// <summary>Audit the whole stored configuration across every node and role (best-effort; see the tool description).</summary>
+    /// <summary>Audit the whole stored configuration across every node and user group (best-effort; see the tool description).</summary>
     All,
 }
 
 /// <summary>Arguments for the audit-permissions tool.</summary>
 /// <param name="Scope">
-/// Which slice of the configuration to audit: a single role (default), a node's subtree, or the whole configuration.
+/// Which slice of the configuration to audit: a single user group (default), a node's subtree, or the
+/// whole configuration.
 /// </param>
-/// <param name="RoleAlias">The role/user-group alias whose stored entries are audited, or '$everyone'. Required when <see cref="AuditScope.Role"/>.</param>
+/// <param name="UserGroupAlias">
+/// The user group alias whose stored entries are audited, or '$everyone'. Required when
+/// <see cref="AuditScope.UserGroup"/>. Carries the value the base package calls a role alias.
+/// </param>
 /// <param name="NodeKey">The content node whose subtree (this node plus descendants) is audited. Required when <see cref="AuditScope.Subtree"/>.</param>
 /// <param name="SeverityMin">Optional minimum severity; when set, only findings at or above this severity are returned.</param>
 public sealed record AuditPermissionsArgs(
-    [property: Description("What to audit: 'role' (all entries for one role across the site — the default, requires roleAlias), 'subtree' (everything stored on a node and its descendants, requires nodeKey), or 'all' (the whole stored configuration).")]
-    AuditScope Scope = AuditScope.Role,
-    [property: Description("The role or user-group alias whose stored permission entries to audit, or '$everyone'. Required when scope is 'role'.")]
-    string? RoleAlias = null,
+    [property: Description("What to audit: 'user-group' (all entries for one user group across the site — the default, requires userGroupAlias), 'subtree' (everything stored on a node and its descendants, requires nodeKey), or 'all' (the whole stored configuration).")]
+    AuditScope Scope = AuditScope.UserGroup,
+    [property: Description("The user group alias whose stored permission entries to audit, or '$everyone'. Required when scope is 'user-group'.")]
+    string? UserGroupAlias = null,
     [property: Description("The GUID key of the content node whose subtree (this node and all descendants) to audit. Required when scope is 'subtree'.")]
     Guid? NodeKey = null,
     [property: Description("Optional minimum severity filter: 'Info', 'Warning', or 'Risk'. When set, only findings at or above this severity are returned.")]

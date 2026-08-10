@@ -304,6 +304,7 @@ public sealed class PermissionPresenter(
     public async Task<AccessExplanation> ToExplanationAsync(
         IReadOnlyDictionary<string, EffectivePermission> permissions,
         Guid nodeKey,
+        IReadOnlyList<NodeRef> ancestors,
         CancellationToken cancellationToken = default)
     {
         var verdicts = new List<AccessVerdict>(permissions.Count);
@@ -312,7 +313,7 @@ public sealed class PermissionPresenter(
             verdicts.Add(await ToVerdictAsync(permission, cancellationToken));
         }
 
-        return new AccessExplanation(GetNodeName(nodeKey), verdicts);
+        return new AccessExplanation(GetNodeName(nodeKey), verdicts, ancestors);
     }
 
     /// <inheritdoc />

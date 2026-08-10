@@ -246,7 +246,7 @@ public sealed class ExplainAccessToolTests
         var verdict = Assert.IsType<AccessVerdict>(result);
         Assert.Equal("Publish", verdict.Permission);
         Assert.Equal("Denied", verdict.Result);
-        Assert.Equal("Editors", verdict.Reasons[0].Role);
+        Assert.Equal("Editors", verdict.Reasons[0].UserGroup);
         AssertNoRawIdentifiers(verdict, nodeKey);
 
         await _permissions.Received(1).ResolveAsync(userKey, nodeKey, path, verb, Arg.Any<CancellationToken>());
@@ -340,7 +340,7 @@ public sealed class ExplainAccessToolTests
             .Returns(new Dictionary<string, EffectivePermission> { [verb] = Perm(verb, isAllowed: false, roleAlias, nodeKey) });
 
         var result = await ((IAITool)CreateTool()).ExecuteAsync(
-            new ExplainAccessArgs(ExplainSubject.Role, nodeKey, RoleAlias: roleAlias, Verb: verb), CancellationToken.None);
+            new ExplainAccessArgs(ExplainSubject.UserGroup, nodeKey, UserGroupAlias: roleAlias, Verb: verb), CancellationToken.None);
 
         var verdict = Assert.IsType<AccessVerdict>(result);
         Assert.Equal("Publish", verdict.Permission);
@@ -368,7 +368,7 @@ public sealed class ExplainAccessToolTests
             });
 
         var result = await ((IAITool)CreateTool()).ExecuteAsync(
-            new ExplainAccessArgs(ExplainSubject.Role, nodeKey, RoleAlias: roleAlias), CancellationToken.None);
+            new ExplainAccessArgs(ExplainSubject.UserGroup, nodeKey, UserGroupAlias: roleAlias), CancellationToken.None);
 
         var explanation = Assert.IsType<AccessExplanation>(result);
         Assert.Equal("News", explanation.Node);
@@ -386,7 +386,7 @@ public sealed class ExplainAccessToolTests
         var nodeKey = Guid.NewGuid();
 
         var result = await ((IAITool)CreateTool()).ExecuteAsync(
-            new ExplainAccessArgs(ExplainSubject.Role, nodeKey), CancellationToken.None);
+            new ExplainAccessArgs(ExplainSubject.UserGroup, nodeKey), CancellationToken.None);
 
         var error = Assert.IsType<AccessError>(result);
         Assert.False(string.IsNullOrWhiteSpace(error.Error));
@@ -423,20 +423,110 @@ public sealed class ExplainAccessToolTests
             .Returns(new Dictionary<string, EffectivePermission> { [verb] = Perm(verb, isAllowed: false, AdvancedPermissionsConstants.EveryoneRoleAlias, nodeKey) });
 
         var result = await ((IAITool)CreateTool()).ExecuteAsync(
-            new ExplainAccessArgs(ExplainSubject.AllRoles, nodeKey, Verb: verb), CancellationToken.None);
+            new ExplainAccessArgs(ExplainSubject.AllUserGroups, nodeKey, Verb: verb), CancellationToken.None);
 
         var roster = Assert.IsType<AccessRoster>(result);
         Assert.Equal("Publish", roster.Permission);
         Assert.Equal("Campaign", roster.Node);
-        Assert.Contains("Editors", roster.AllowedRoles);
-        Assert.Contains("Writers", roster.DeniedRoles);
-        Assert.Contains(AdvancedPermissionsConstants.EveryoneRoleDisplayName, roster.DeniedRoles);
-        Assert.DoesNotContain("Editors", roster.DeniedRoles);
+        Assert.Contains("Editors", roster.AllowedUserGroups);
+        Assert.Contains("Writers", roster.DeniedUserGroups);
+        Assert.Contains(AdvancedPermissionsConstants.EveryoneRoleDisplayName, roster.DeniedUserGroups);
+        Assert.DoesNotContain("Editors", roster.DeniedUserGroups);
 
         var json = JsonSerializer.Serialize(roster);
         Assert.DoesNotContain("$everyone", json);
         Assert.DoesNotContain("Umb.Document.", json);
         Assert.DoesNotContain(nodeKey.ToString(), json);
+    }
+
+    /// <summary>
+    /// The ancestor chain is resolved on every call anyway (the resolver needs it), so it is returned
+    /// rather than discarded. Without it the copilot cannot answer "why can I delete this but not its
+    /// parent?" using our own tools — it has to go hunting through the content tools for the parent, which
+    /// is where both Haiku and Opus derailed. The keys let it call straight back into this tool.
+    /// </summary>
+    [Fact]
+    public async Task SingleVerb_ReturnsAncestorChainWithNamesAndKeys()
+    {
+        var rootKey = Guid.NewGuid();
+        var parentKey = Guid.NewGuid();
+        var nodeKey = Guid.NewGuid();
+        SetupNode(rootKey, "Home");
+        SetupNode(parentKey, "People");
+        SetupNode(nodeKey, "Lee Kelleher");
+
+        var path = new[] { rootKey, parentKey, nodeKey };
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        _permissions
+            .ResolveAsync(Arg.Any<Guid>(), nodeKey, path, AdvancedPermissionsConstants.VerbDelete, Arg.Any<CancellationToken>())
+            .Returns(Perm(AdvancedPermissionsConstants.VerbDelete, isAllowed: true, "admins", nodeKey));
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.User, nodeKey, UserKey: Guid.NewGuid(), Verb: AdvancedPermissionsConstants.VerbDelete),
+            CancellationToken.None);
+
+        var verdict = Assert.IsType<AccessVerdict>(result);
+        Assert.NotNull(verdict.Ancestors);
+
+        // Nearest-last, and the node itself is never included — only what is above it.
+        Assert.Equal(["Home", "People"], verdict.Ancestors!.Select(a => a.Name));
+        Assert.Equal(parentKey, verdict.Ancestors[^1].Key);
+        Assert.DoesNotContain(verdict.Ancestors, a => a.Key == nodeKey);
+    }
+
+    /// <summary>
+    /// The all-permissions explanation carries the same chain, so a comparison works whether or not a
+    /// single permission was focused.
+    /// </summary>
+    [Fact]
+    public async Task AllVerbs_ExplanationCarriesAncestorChain()
+    {
+        var parentKey = Guid.NewGuid();
+        var nodeKey = Guid.NewGuid();
+        SetupNode(parentKey, "People");
+        SetupNode(nodeKey, "Lee Kelleher");
+
+        var path = new[] { parentKey, nodeKey };
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        _permissions
+            .ResolveAllAsync(Arg.Any<Guid>(), nodeKey, path, null, Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, EffectivePermission>
+            {
+                ["Umb.Document.Delete"] = Perm("Umb.Document.Delete", isAllowed: true, "admins", nodeKey),
+            });
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.User, nodeKey, UserKey: Guid.NewGuid()), CancellationToken.None);
+
+        var explanation = Assert.IsType<AccessExplanation>(result);
+        var parent = Assert.Single(explanation.Ancestors);
+        Assert.Equal("People", parent.Name);
+        Assert.Equal(parentKey, parent.Key);
+    }
+
+    /// <summary>
+    /// A root-level node has nothing above it, so the chain is empty rather than absent or containing the
+    /// virtual-root sentinel — the copilot must not offer a parent that does not exist.
+    /// </summary>
+    [Fact]
+    public async Task RootLevelNode_HasEmptyAncestorChain()
+    {
+        var nodeKey = Guid.NewGuid();
+        SetupNode(nodeKey, "Home");
+
+        var path = new[] { nodeKey };
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        _permissions
+            .ResolveAllAsync(Arg.Any<Guid>(), nodeKey, path, null, Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, EffectivePermission>
+            {
+                ["Umb.Document.Delete"] = Perm("Umb.Document.Delete", isAllowed: true, "admins", nodeKey),
+            });
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.User, nodeKey, UserKey: Guid.NewGuid()), CancellationToken.None);
+
+        Assert.Empty(Assert.IsType<AccessExplanation>(result).Ancestors);
     }
 
     /// <summary>
@@ -469,15 +559,15 @@ public sealed class ExplainAccessToolTests
             });
 
         var result = await ((IAITool)CreateTool()).ExecuteAsync(
-            new ExplainAccessArgs(ExplainSubject.AllRoles, nodeKey), CancellationToken.None);
+            new ExplainAccessArgs(ExplainSubject.AllUserGroups, nodeKey), CancellationToken.None);
 
         var report = Assert.IsType<AccessRosterReport>(result);
         Assert.Equal("Campaign", report.Node);
         var read = Assert.Single(report.Permissions, a => a.Permission == "Read");
-        Assert.Contains("Editors", read.AllowedRoles);
-        Assert.Contains(AdvancedPermissionsConstants.EveryoneRoleDisplayName, read.DeniedRoles);
+        Assert.Contains("Editors", read.AllowedUserGroups);
+        Assert.Contains(AdvancedPermissionsConstants.EveryoneRoleDisplayName, read.DeniedUserGroups);
         var delete = Assert.Single(report.Permissions, a => a.Permission == "Delete");
-        Assert.Contains("Editors", delete.DeniedRoles);
+        Assert.Contains("Editors", delete.DeniedUserGroups);
 
         var json = JsonSerializer.Serialize(report);
         Assert.DoesNotContain("$everyone", json);
@@ -622,7 +712,7 @@ public sealed class ExplainAccessToolTests
             .Returns(new Dictionary<string, EffectivePermission> { [verb] = Perm(verb, isAllowed: false, "editors", nodeKey) });
 
         var result = await ((IAITool)CreateTool()).ExecuteAsync(
-            new ExplainAccessArgs(ExplainSubject.AllRoles, nodeKey, Verb: verb, SuggestFix: true), CancellationToken.None);
+            new ExplainAccessArgs(ExplainSubject.AllUserGroups, nodeKey, Verb: verb, SuggestFix: true), CancellationToken.None);
 
         // All-roles returns a roster, never a verdict-with-remediation.
         Assert.IsType<AccessRoster>(result);
@@ -657,7 +747,7 @@ public sealed class ExplainAccessToolTests
         SetupStoredEntries(StoreEntry(parent, roleAlias, verb, PermissionState.Deny, PermissionScope.ThisNodeAndDescendants));
 
         var result = await ((IAITool)CreateTool()).ExecuteAsync(
-            new ExplainAccessArgs(ExplainSubject.Role, nodeKey, RoleAlias: roleAlias, Verb: verb, SuggestFix: true), CancellationToken.None);
+            new ExplainAccessArgs(ExplainSubject.UserGroup, nodeKey, UserGroupAlias: roleAlias, Verb: verb, SuggestFix: true), CancellationToken.None);
 
         var verdict = Assert.IsType<AccessVerdict>(result);
         Assert.NotNull(verdict.Remediations);

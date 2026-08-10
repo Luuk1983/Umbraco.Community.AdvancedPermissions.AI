@@ -29,12 +29,20 @@ No Core/Data/Client projects: the package has no persistence and no Vite/Lit fro
 
 ## Dependencies
 
-- **`Umbraco.Community.AdvancedPermissions`** (`[17.2.0,18.0.0-0)`) — the base package. A real
+- **`Umbraco.Community.AdvancedPermissions`** (`[17.2.0,18.0.0)`) — the base package. A real
   runtime dependency: the tools resolve its services from DI. It flows `Abstractions` transitively,
   so the package compiles against the contract without a separate reference. **No direct
-  `Umbraco.Cms.*` references** — they arrive transitively (the 17.4.2 floor is implicit via `Umbraco.AI`).
-- **`Umbraco.AI`** (`17.0.0`) — the `[AITool]` runtime. Realigned to the CMS major in 2026.06;
-  17.0.0 requires `Umbraco.Cms >= 17.4.2`.
+  `Umbraco.Cms.*` references** — they arrive transitively (the CMS floor is implicit; see below).
+  Upper bounds are **plain stable versions** — nuget.org rejects a `-0` bound at push time (see RELEASE.md).
+- **`Umbraco.AI.Core`** (`[17.0.0,18.0.0)`) — the `[AITool]` authoring contract the package
+  references; the full `Umbraco.AI` runtime is a host concern (the TestSite runs `Umbraco.AI` 17.2.0).
+  Realigned to the CMS major in 2026.06.
+- **The effective Umbraco CMS floor is `17.4.0`**, and it is *computed*, never declared here. Read it off
+  the dependencies' own nuspecs: `Umbraco.AI.Core` 17.0.0 requires `Umbraco.Cms.* [17.4.0, 17.999.999)`
+  and the base package requires `[17.3.0, 18.0.0)`, so the higher floor wins. Do not restate this number
+  from memory (it was documented as 17.4.2 for a while and that was wrong) — re-derive it from the
+  nuspecs whenever a dependency version moves, and update the README's Requirements section to match.
+  Note `Umbraco.AI.Core`'s `17.999.999` ceiling: the package physically cannot install on Umbraco 18.
 
 ## Version sync (backoffice == NuGet)
 
@@ -89,6 +97,20 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
   base package's `concepts.md` uses "entry" and not "rule". Enforced in the grounding string
   (`AdvancedPermissionsGroundingContributor`) and the baked sentences in `PermissionPresenter`
   (`ToRemediationAsync`, `BuildFriendlyMessage`, `GroupsText`) — keep both in step, with tests.
+- **Terminology reaches the schema, and stops at the base package.** Before 17.0.0 the rule covered only
+  prose; the *values* said `role`. That was the same fluent counter-example the prose rule exists to
+  prevent — the model was ordered never to say "roles" while being made to type `subject: "role"` and
+  `roleAlias` — so the model-visible schema was renamed: `ExplainSubject.UserGroup`/`AllUserGroups`,
+  `AuditScope.UserGroup`, `UserGroupAlias`, and the returned `UserGroup` / `AllowedUserGroups` /
+  `DeniedUserGroups` fields. `ToolSchemaTerminologyTests` reflects over every model-visible type to hold
+  it, and `roleAlias`/`all-roles`/`scope=role` are banned phrases in the descriptions.
+  **The boundary is deliberate**: the base package's API is role-named throughout
+  (`AdvancedPermissionEntry.RoleAlias`, `ResolveForRoleAsync`, `ContributingRole`, `EveryoneRoleAlias`),
+  so internals that carry one of its values keep the name — `AuditFinding.RoleAlias`,
+  `RemediationOption.RoleAlias`, local `roleAliases`, the private `ExplainRoleAsync`/`TypeCreateAllRolesAsync`.
+  Neither `AuditFinding` nor `RemediationOption` is ever serialized; the presenter converts them first.
+  Renaming those would hide where the value came from. When adding a tool arg or a returned field, use
+  "user group"; when calling the base package, "role" is correct.
 - **Scope strings are label + meaning, both sourced**: `GetScopeText` pairs the Permissions Editor's own
   dropdown label (base repo `src/.../localization/en.ts` → `scope_thisNodeOnly` etc.) with the plain-English
   meaning taken verbatim from the base repo's `help-docs/en/concepts.md` — e.g. "This node only (the node

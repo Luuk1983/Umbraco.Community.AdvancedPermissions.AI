@@ -120,9 +120,14 @@ public interface IPermissionPresenter
     /// <param name="nodeKey">The node the permissions were resolved at.</param>
     /// <param name="cancellationToken">Token to support cancellation.</param>
     /// <returns>The friendly explanation.</returns>
+    /// <param name="ancestors">
+    /// The node's ancestor chain, root first and parent last, carried through so the copilot can ask about
+    /// the parent without searching for it. Empty for a root-level node.
+    /// </param>
     Task<AccessExplanation> ToExplanationAsync(
         IReadOnlyDictionary<string, EffectivePermission> permissions,
         Guid nodeKey,
+        IReadOnlyList<NodeRef> ancestors,
         CancellationToken cancellationToken = default);
 
     /// <summary>

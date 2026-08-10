@@ -224,7 +224,7 @@ public sealed class PermissionPresenterTests
         Assert.Equal(2, verdict.Reasons.Count);
 
         var first = verdict.Reasons[0];
-        Assert.Equal("Editors", first.Role);
+        Assert.Equal("Editors", first.UserGroup);
         Assert.Equal("Denied", first.Decision);
         Assert.Equal("This node only (the node itself, not its children)", first.Scope);
         Assert.Equal("News", first.SetOn);
@@ -232,7 +232,7 @@ public sealed class PermissionPresenterTests
         Assert.True(first.PriorityOverride);
 
         var second = verdict.Reasons[1];
-        Assert.Equal("All Users", second.Role);
+        Assert.Equal("All Users", second.UserGroup);
         Assert.Equal("Allowed", second.Decision);
         Assert.Equal("This node and descendants (the node and everything beneath it)", second.Scope);
         Assert.Equal("All content (root-level default)", second.SetOn);
@@ -259,7 +259,7 @@ public sealed class PermissionPresenterTests
                 "Umb.Document.Delete", IsAllowed: false, IsExplicit: true, Reasoning: []),
         };
 
-        var explanation = await sut.ToExplanationAsync(permissions, nodeKey);
+        var explanation = await sut.ToExplanationAsync(permissions, nodeKey, []);
 
         Assert.Equal("News", explanation.Node);
         Assert.Equal(2, explanation.Permissions.Count);
@@ -308,13 +308,13 @@ public sealed class PermissionPresenterTests
         var first = friendly.Findings[0];
         Assert.Equal("everyone-broad-write", first.RuleId);
         Assert.Equal("Risk", first.Severity);
-        Assert.Equal("All Users", first.Role);
+        Assert.Equal("All Users", first.UserGroup);
         Assert.Equal("Update", first.Permission);
         Assert.Equal("All content (root-level default)", first.Node);
 
         var second = friendly.Findings[1];
         Assert.Equal("Warning", second.Severity);
-        Assert.Equal("Editors", second.Role);
+        Assert.Equal("Editors", second.UserGroup);
         Assert.Equal("Delete", second.Permission);
         Assert.Equal("News", second.Node);
         // The conflict message uses editor-grounded terminology ("entry"/"permission"), not bare tokens.
@@ -623,7 +623,7 @@ public sealed class PermissionPresenterTests
 
         Assert.Equal("Override", friendly.Action);
         Assert.Equal("Publish", friendly.Permission);
-        Assert.Equal("Editors", friendly.Role);
+        Assert.Equal("Editors", friendly.UserGroup);
         Assert.Equal("This node only (the node itself, not its children)", friendly.Scope);
         // Editor-grounded terminology, including naming the conflicting entry it overrides.
         Assert.Contains("Allow entry", friendly.Description, StringComparison.Ordinal);

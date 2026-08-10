@@ -15,8 +15,8 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
 /// <summary>
 /// The single, parameterized "explain effective access" tool. It answers "what is the effective
 /// permission decision, and why" for a content node, for one of four subjects selected by
-/// <see cref="ExplainAccessArgs.Subject"/>: the current backoffice user, a specific user, a single role,
-/// or all assignable roles. The three former tools (<c>uap_explain_user_access</c>,
+/// <see cref="ExplainAccessArgs.Subject"/>: the current backoffice user, a specific user, a single user
+/// group, or all user groups. The three former tools (<c>uap_explain_user_access</c>,
 /// <c>uap_explain_role_access</c>, <c>uap_who_can</c>) collapse into this one because they are the same
 /// operation differing only by subject. Every result is projected through <see cref="IPermissionPresenter"/>
 /// so the model only ever sees friendly labels — never role aliases, verb identifiers, scope/state enum
@@ -25,7 +25,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
 /// <param name="permissions">The permission service used to resolve effective node permissions.</param>
 /// <param name="pathResolver">The resolver that builds the root-to-node ancestor key path.</param>
 /// <param name="presenter">The presenter that maps raw permission data to friendly labels.</param>
-/// <param name="userGroupService">The Umbraco user group service used to enumerate assignable roles for the all-roles subject.</param>
+/// <param name="userGroupService">The Umbraco user group service used to enumerate user groups for the all-user-groups subject.</param>
 /// <param name="backOfficeSecurityAccessor">Accessor used to resolve the current backoffice user for the current-user subject.</param>
 /// <param name="docTypePermissions">The doc-type permission service used to resolve "Insert Options" (type-create) decisions.</param>
 /// <param name="contentTypeService">The Umbraco content-type service used to enumerate candidate document types and resolve allowed children.</param>
@@ -53,8 +53,8 @@ public sealed class ExplainAccessTool(
     public override string Description =>
         "Answer 'what is the effective permission decision, and why' for a content node. " +
         "Set `subject`: `current-user` (the editor asking about themselves — 'why can't I publish/delete/edit this?'), " +
-        "`user` (one specific user), `role` (one user group, or 'All Users' — 'what can Editors do here?'), " +
-        "or `all-roles` (every user group — 'who can publish/edit/delete here?'). " +
+        "`user` (one specific user), `user-group` (one user group, or 'All Users' — 'what can Editors do here?'), " +
+        "or `all-user-groups` (every user group — 'who can publish/edit/delete here?'). " +
         "Call this FIRST whenever someone can't perform an action or the editor looks restricted: " +
         "fields read-only / can't save, can't trash/delete, Publish/Unpublish disabled, can't move/copy/sort/rollback, " +
         "can't set notifications / culture & hostnames / public access, or Create is missing. " +
@@ -62,11 +62,16 @@ public sealed class ExplainAccessTool(
         "(root node, content type) before checking this. " +
         "Returns each permission's Allowed/Denied result with the reason (which user group and node, and whether the " +
         "entry is set directly on the node or inherited). " +
-        "Set suggestFix=true (with a single verb, node aspect, and the `current-user`/`user`/`role` subject) to also get " +
+        "Set suggestFix=true (with a single verb, node aspect, and the `current-user`/`user`/`user-group` subject) to also get " +
         "the concrete, confirmed changes that would grant a denied permission — computed by simulating them against " +
         "the resolver, so do NOT guess fixes yourself (a plain Allow entry cannot beat a Deny entry on the same node). " +
         "This is READ-ONLY: it describes the entries a human must add in the backoffice Permissions Editor; it never " +
         "applies them, and you cannot apply or change permissions — never offer to. " +
+        "Permissions are independent of publishing, so this works on any content node whether it is published, a " +
+        "draft, or never published — if another tool fails to resolve a node, that says nothing about this one. " +
+        "To compare two nodes ('why can I delete this but not its parent?'), call this once per node and compare " +
+        "the deciding entries; the `ancestors` on the result gives you each parent's name and key to pass straight " +
+        "back in, so you never need the content tools to walk the tree. " +
         "Set aspect=type-create for 'why can't I create/insert document type X here?', 'what document types can I create here?', " +
         "or 'who can create type X here?' — this covers the Insert Options / allowed-child-types restrictions " +
         "(for type-create, nodeKey is the PARENT node; set contentTypeKey to focus a single document type, or omit it for the full roster).";
@@ -97,8 +102,8 @@ public sealed class ExplainAccessTool(
         {
             ExplainSubject.CurrentUser => await ExplainCurrentUserAsync(args, path, cancellationToken),
             ExplainSubject.User => await ExplainUserAsync(args, path, cancellationToken),
-            ExplainSubject.Role => await ExplainRoleAsync(args, path, cancellationToken),
-            ExplainSubject.AllRoles => await ExplainAllRolesAsync(args, path, cancellationToken),
+            ExplainSubject.UserGroup => await ExplainRoleAsync(args, path, cancellationToken),
+            ExplainSubject.AllUserGroups => await ExplainAllRolesAsync(args, path, cancellationToken),
             _ => new AccessError("Unknown subject."),
         };
 
@@ -162,17 +167,21 @@ public sealed class ExplainAccessTool(
         if (!string.IsNullOrWhiteSpace(args.Verb))
         {
             var single = await permissions.ResolveAsync(userKey, args.NodeKey, path, args.Verb, cancellationToken);
-            var verdict = Format(await presenter.ToVerdictAsync(single, cancellationToken), args.ResponseFormat);
+            var verdict = Format(await presenter.ToVerdictAsync(single, cancellationToken), args.ResponseFormat)
+                with { Ancestors = BuildAncestors(args.NodeKey, path) };
             var roleAliases = await GetUserRoleAliasesAsync(userKey);
             return await AttachRemediationAsync(verdict, single, args, path, roleAliases, cancellationToken);
         }
 
         var all = await permissions.ResolveAllAsync(userKey, args.NodeKey, path, null, cancellationToken);
-        return Format(await presenter.ToExplanationAsync(all, args.NodeKey, cancellationToken), args.ResponseFormat);
+        return Format(
+            await presenter.ToExplanationAsync(all, args.NodeKey, BuildAncestors(args.NodeKey, path), cancellationToken),
+            args.ResponseFormat);
     }
 
     /// <summary>
-    /// Explains a single role's access, or returns a friendly error when the role alias is missing.
+    /// Explains a single user group's access, or returns a friendly error when the user group alias is
+    /// missing.
     /// </summary>
     /// <param name="args">The tool arguments.</param>
     /// <param name="path">The resolved root-to-node ancestor key path.</param>
@@ -183,27 +192,44 @@ public sealed class ExplainAccessTool(
         IReadOnlyList<Guid> path,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(args.RoleAlias))
+        if (string.IsNullOrWhiteSpace(args.UserGroupAlias))
         {
-            return new AccessError("A roleAlias is required when explaining access for a single user group.");
+            return new AccessError("A userGroupAlias is required when explaining access for a single user group.");
         }
 
         var verbs = string.IsNullOrWhiteSpace(args.Verb) ? null : new[] { args.Verb };
-        var resolved = await permissions.ResolveForRoleAsync(args.RoleAlias, args.NodeKey, path, verbs, cancellationToken);
+        var resolved = await permissions.ResolveForRoleAsync(args.UserGroupAlias, args.NodeKey, path, verbs, cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(args.Verb) && resolved.TryGetValue(args.Verb, out var single))
         {
-            var verdict = Format(await presenter.ToVerdictAsync(single, cancellationToken), args.ResponseFormat);
+            var verdict = Format(await presenter.ToVerdictAsync(single, cancellationToken), args.ResponseFormat)
+                with { Ancestors = BuildAncestors(args.NodeKey, path) };
 
             // Node-level role resolution uses ONLY the role itself — $everyone is excluded (mirrors
             // AdvancedPermissionService.ResolveForRoleAsync). The remediation must simulate with the same
             // single-role set or its baseline would not match the verdict being explained.
-            IReadOnlyList<string> roleAliases = [args.RoleAlias];
+            IReadOnlyList<string> roleAliases = [args.UserGroupAlias];
             return await AttachRemediationAsync(verdict, single, args, path, roleAliases, cancellationToken);
         }
 
-        return Format(await presenter.ToExplanationAsync(resolved, args.NodeKey, cancellationToken), args.ResponseFormat);
+        return Format(
+            await presenter.ToExplanationAsync(resolved, args.NodeKey, BuildAncestors(args.NodeKey, path), cancellationToken),
+            args.ResponseFormat);
     }
+
+    /// <summary>
+    /// Builds the evaluated node's ancestor chain — root first, parent last — from the path the resolver
+    /// already needed. The node itself and the virtual-root sentinel are excluded, so a root-level node
+    /// yields an empty chain rather than a parent that does not exist.
+    /// </summary>
+    /// <param name="nodeKey">The evaluated node, excluded from its own ancestor chain.</param>
+    /// <param name="path">The resolved root-to-node key path.</param>
+    /// <returns>The named ancestor chain, empty when the node sits at the root.</returns>
+    private IReadOnlyList<NodeRef> BuildAncestors(Guid nodeKey, IReadOnlyList<Guid> path) =>
+        path
+            .Where(k => k != nodeKey && k != AdvancedPermissionsConstants.VirtualRootNodeKey)
+            .Select(k => new NodeRef(presenter.GetNodeName(k), k))
+            .ToList();
 
     /// <summary>
     /// Builds a "who can do this here" roster across every assignable role. With a focused verb it returns
@@ -320,8 +346,9 @@ public sealed class ExplainAccessTool(
     // ----------------------------------------------------------------------------------------------
     // Remediation ("suggest fix"). Opt-in via ExplainAccessArgs.SuggestFix. Computed ONLY for a single
     // focused verb (the all-verbs explanation path attaches nothing — keeping the work bounded), only
-    // for the node aspect, and only for the current-user / user / role subjects (never all-roles, which
-    // has no single role set to simulate against). Each suggestion is a CONFIRMED change: the remediation
+    // for the node aspect, and only for the current-user / user / user-group subjects (never
+    // all-user-groups, which has no single role set to simulate against). Each suggestion is a
+    // CONFIRMED change: the remediation
     // service has already re-resolved the package's pure resolver against the change and kept only the
     // mutations that flip the verdict to Allowed.
     // ----------------------------------------------------------------------------------------------
@@ -337,7 +364,7 @@ public sealed class ExplainAccessTool(
     /// <param name="path">The resolved root-to-node ancestor key path.</param>
     /// <param name="roleAliases">
     /// The exact role set the verdict used — the user's groups plus <c>$everyone</c> for a user subject,
-    /// or the single role alias for a role subject.
+    /// or the single user group alias for a user-group subject.
     /// </param>
     /// <param name="cancellationToken">Token to support cancellation.</param>
     /// <returns>The verdict, possibly enriched with confirmed remediations.</returns>
@@ -438,8 +465,8 @@ public sealed class ExplainAccessTool(
 
         return args.Subject switch
         {
-            ExplainSubject.AllRoles => await TypeCreateAllRolesAsync(args, resolvePath, allowedChildren, cancellationToken),
-            ExplainSubject.Role => await TypeCreateForRoleAsync(args, resolvePath, allowedChildren, cancellationToken),
+            ExplainSubject.AllUserGroups => await TypeCreateAllRolesAsync(args, resolvePath, allowedChildren, cancellationToken),
+            ExplainSubject.UserGroup => await TypeCreateForRoleAsync(args, resolvePath, allowedChildren, cancellationToken),
             ExplainSubject.User => await TypeCreateForUserSubjectAsync(args, args.UserKey, resolvePath, allowedChildren, cancellationToken),
             ExplainSubject.CurrentUser => await TypeCreateForCurrentUserAsync(args, resolvePath, allowedChildren, cancellationToken),
             _ => new AccessError("Unknown subject."),
@@ -542,12 +569,12 @@ public sealed class ExplainAccessTool(
         ISet<Guid> allowedChildren,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(args.RoleAlias))
+        if (string.IsNullOrWhiteSpace(args.UserGroupAlias))
         {
-            return new AccessError("A roleAlias is required when explaining access for a single user group.");
+            return new AccessError("A userGroupAlias is required when explaining access for a single user group.");
         }
 
-        IReadOnlyList<string> roleAliases = [args.RoleAlias, AdvancedPermissionsConstants.EveryoneRoleAlias];
+        IReadOnlyList<string> roleAliases = [args.UserGroupAlias, AdvancedPermissionsConstants.EveryoneRoleAlias];
 
         if (args.ContentTypeKey is { } focused)
         {

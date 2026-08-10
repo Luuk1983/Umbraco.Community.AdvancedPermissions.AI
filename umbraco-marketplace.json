@@ -3,7 +3,7 @@
   "Title": "Advanced Permissions for Umbraco — AI Copilot Tools",
   "Category": "Developer Tools",
   "AlternateCategory": "Editor Tools",
-  "Description": "Optional AI companion for Advanced Permissions for Umbraco. Makes the Umbraco backoffice copilot permission-aware: ask in plain language who can do what, why an action is denied, and audit permission configuration — every answer grounded in the package's permission-resolution engine, read-only.",
+  "Description": "Optional AI companion for Advanced Permissions for Umbraco. It makes the Umbraco backoffice copilot permission-aware, so editors can ask in plain language who can do what, why an action is blocked, and what would fix it, plus audit a user group or a branch of the tree for risks and get the permission model itself explained. Every answer is computed by the package's own permission-resolution engine, including the reasoning behind it, so the copilot stops guessing. Strictly read-only. Requires Umbraco AI with a configured copilot chat.",
   "PackageType": "Package",
   "LicenseTypes": ["Free"],
   "AuthorDetails": {
@@ -25,5 +25,18 @@
     "user groups",
     "backoffice"
   ],
-  "Screenshots": []
+  "Screenshots": [
+    {
+      "ImageUrl": "https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/copilot_explain_access.jpg",
+      "Caption": "Ask in plain language why an action is blocked. The answer comes from the package's own permission resolver, not from the model's guesswork."
+    },
+    {
+      "ImageUrl": "https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/agent_tool_scopes.jpg",
+      "Caption": "The tools stay disabled until you allow them: tick 'Advanced Permissions (read)' in your chat agent's governance."
+    },
+    {
+      "ImageUrl": "https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/copilot_suggest_fix.jpg",
+      "Caption": "Ask what would fix it. Every option is verified against the resolver before it is offered, and it describes the change rather than applying it."
+    }
+  ]
 }

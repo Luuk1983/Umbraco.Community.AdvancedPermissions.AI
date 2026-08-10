@@ -229,14 +229,14 @@ public sealed class ExplainAccessTypeCreateTests
             .Returns(CreatePerm(isAllowed: false, roleAlias, nodeKey));
 
         var result = await ((IAITool)CreateTool()).ExecuteAsync(
-            new ExplainAccessArgs(ExplainSubject.Role, nodeKey, RoleAlias: roleAlias, Aspect: ExplainAspect.TypeCreate, ContentTypeKey: ctKey),
+            new ExplainAccessArgs(ExplainSubject.UserGroup, nodeKey, UserGroupAlias: roleAlias, Aspect: ExplainAspect.TypeCreate, ContentTypeKey: ctKey),
             CancellationToken.None);
 
         var verdict = Assert.IsType<TypeCreateVerdict>(result);
         Assert.Equal("Article", verdict.DocumentType);
         Assert.Equal("Denied", verdict.Result);
         Assert.NotEmpty(verdict.Reasons);
-        Assert.Equal("Editors", verdict.Reasons[0].Role);
+        Assert.Equal("Editors", verdict.Reasons[0].UserGroup);
         AssertNoRawIdentifiers(verdict, nodeKey, ctKey);
     }
 
@@ -348,16 +348,16 @@ public sealed class ExplainAccessTypeCreateTests
             .Returns(CreatePerm(isAllowed: false, AdvancedPermissionsConstants.EveryoneRoleAlias, nodeKey));
 
         var result = await ((IAITool)CreateTool()).ExecuteAsync(
-            new ExplainAccessArgs(ExplainSubject.AllRoles, nodeKey, Aspect: ExplainAspect.TypeCreate, ContentTypeKey: ctKey),
+            new ExplainAccessArgs(ExplainSubject.AllUserGroups, nodeKey, Aspect: ExplainAspect.TypeCreate, ContentTypeKey: ctKey),
             CancellationToken.None);
 
         var roster = Assert.IsType<TypeCreateRoster>(result);
         Assert.Equal("Article", roster.DocumentType);
         Assert.Equal("Campaigns", roster.Node);
         Assert.True(roster.IsApplicable);
-        Assert.Contains("Editors", roster.AllowedRoles);
-        Assert.Contains("Writers", roster.DeniedRoles);
-        Assert.Contains(AdvancedPermissionsConstants.EveryoneRoleDisplayName, roster.DeniedRoles);
+        Assert.Contains("Editors", roster.AllowedUserGroups);
+        Assert.Contains("Writers", roster.DeniedUserGroups);
+        Assert.Contains(AdvancedPermissionsConstants.EveryoneRoleDisplayName, roster.DeniedUserGroups);
         AssertNoRawIdentifiers(roster, nodeKey, ctKey);
     }
 
@@ -372,7 +372,7 @@ public sealed class ExplainAccessTypeCreateTests
         var ctKey = Guid.NewGuid();
 
         var result = await ((IAITool)CreateTool()).ExecuteAsync(
-            new ExplainAccessArgs(ExplainSubject.Role, nodeKey, Aspect: ExplainAspect.TypeCreate, ContentTypeKey: ctKey),
+            new ExplainAccessArgs(ExplainSubject.UserGroup, nodeKey, Aspect: ExplainAspect.TypeCreate, ContentTypeKey: ctKey),
             CancellationToken.None);
 
         Assert.IsType<AccessError>(result);

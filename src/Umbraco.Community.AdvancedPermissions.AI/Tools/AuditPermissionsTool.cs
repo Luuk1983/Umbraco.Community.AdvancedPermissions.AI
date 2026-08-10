@@ -16,7 +16,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
 /// never raw aliases/verbs/GUIDs). The slice that is audited is selected by
 /// <see cref="AuditPermissionsArgs.Scope"/>:
 /// <list type="bullet">
-/// <item><description><b>Role</b> — every entry for one role across the tree, via <see cref="IAdvancedPermissionRepository.GetByRoleAsync"/>.</description></item>
+/// <item><description><b>UserGroup</b> — every entry for one user group across the tree, via <see cref="IAdvancedPermissionRepository.GetByRoleAsync"/>.</description></item>
 /// <item><description><b>Subtree</b> — every entry on a node and its descendant document nodes; descendant keys are gathered from <see cref="IEntityService"/> and entries loaded via <see cref="IAdvancedPermissionRepository.GetByNodesAsync"/>.</description></item>
 /// <item><description><b>All</b> — a best-effort sweep of the whole configuration: every live document node (descendants of root) plus the virtual-root sentinel, loaded via <see cref="IAdvancedPermissionRepository.GetByNodesAsync"/>. See the limitation note on the description.</description></item>
 /// </list>
@@ -46,13 +46,16 @@ public sealed class AuditPermissionsTool(
 
     /// <inheritdoc />
     public override string Description =>
-        "Scan stored permission configuration for risks, conflicts and over-broad grants " +
-        "(over-broad grants to All Users, conflicting Allow and Deny entries, risky 'this node and descendants' " +
-        "entries, Priority Override entries). " +
-        "Set `scope`: `role` (every entry for one user group — the default, and it requires `roleAlias`), " +
+        "Scan stored permission configuration against four checks: All Users allowed a write permission " +
+        "across the whole site from the root; an Allow entry and a Deny entry for the same permission on the " +
+        "same node; a user group able to manage permissions across a node and its descendants; and Priority " +
+        "Override entries. Those four are the WHOLE rule set — a clean result means these four found nothing, " +
+        "not that the configuration was verified correct, so do not present it as a broader all-clear, and do " +
+        "not claim a check that is not in this list. " +
+        "Set `scope`: `user-group` (every entry for one user group — the default, and it requires `userGroupAlias`), " +
         "`subtree` (everything under a node, requires `nodeKey`), or `all` (the whole configuration, needs nothing else). " +
         "Optionally filter by minimum severity. " +
-        "Use for 'audit/review the permissions for the Editors user group' (scope=role), 'any risks under /News?' " +
+        "Use for 'audit/review the permissions for the Editors user group' (scope=user-group), 'any risks under /News?' " +
         "(scope=subtree), or 'is anything misconfigured?' / any site-wide question (scope=all — do not leave the " +
         "default in place for these, it will fail without a user group). " +
         "Note: `all` is best-effort — it sweeps every live document node plus the root-level defaults, so entries " +
@@ -85,13 +88,13 @@ public sealed class AuditPermissionsTool(
     {
         switch (args.Scope)
         {
-            case AuditScope.Role:
-                if (string.IsNullOrWhiteSpace(args.RoleAlias))
+            case AuditScope.UserGroup:
+                if (string.IsNullOrWhiteSpace(args.UserGroupAlias))
                 {
-                    return (null, new AccessError("A roleAlias is required when auditing a single user group — or set scope to 'all' to audit the whole configuration."));
+                    return (null, new AccessError("A userGroupAlias is required when auditing a single user group — or set scope to 'all' to audit the whole configuration."));
                 }
 
-                return (await repository.GetByRoleAsync(args.RoleAlias, cancellationToken), null);
+                return (await repository.GetByRoleAsync(args.UserGroupAlias, cancellationToken), null);
 
             case AuditScope.Subtree:
                 if (args.NodeKey is null)

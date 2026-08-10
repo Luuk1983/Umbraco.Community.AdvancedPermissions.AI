@@ -17,8 +17,13 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tests;
 /// written in the banned vocabulary is a fluent counter-example competing with the rule. A concrete
 /// example beats an abstract instruction, which is why terminology kept leaking through several rounds of
 /// strengthening the prompt. These tests make the prompt and the tool descriptions answer to one standard.
-/// Argument <i>values</i> may still be named literally (e.g. the <c>role</c> subject), since the model has
-/// to pass them; only the surrounding prose is constrained.
+/// <para>
+/// Argument <i>values</i> used to be exempt — the reasoning being that the model has to type them, so only
+/// the surrounding prose could be constrained. That exemption was dropped before 17.0.0: the schema was
+/// renamed so the values say <c>user-group</c> too (see <see cref="ToolSchemaTerminologyTests"/>), because
+/// a literal the model is forced to type is the strongest counter-example of all. A description must now
+/// quote the new values; the old ones are banned outright below.
+/// </para>
 /// </remarks>
 public sealed class ToolDescriptionTerminologyTests
 {
@@ -69,6 +74,9 @@ public sealed class ToolDescriptionTerminologyTests
         "a specific role",
         "single role",
         "descendants' rules", // entries are entries, never rules
+        "roleAlias",          // the argument is userGroupAlias; naming the old one would send the model wrong
+        "all-roles",          // the subject value is all-user-groups
+        "scope=role",         // the audit scope value is user-group
     ];
 
     /// <summary>
@@ -95,7 +103,6 @@ public sealed class ToolDescriptionTerminologyTests
     /// model sees the mandated wording modelled rather than merely instructed.
     /// </summary>
     /// <param name="toolName">The tool whose description is checked.</param>
-    /// <param name="description">The description text.</param>
     [Theory]
     [InlineData("uap_explain_access")]
     [InlineData("uap_audit_permissions")]
@@ -106,6 +113,34 @@ public sealed class ToolDescriptionTerminologyTests
             : NewAudit().Description;
 
         Assert.Contains("user group", description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Both Haiku and Opus concluded an unpublished node could not be checked, after an unrelated content
+    /// tool failed on it. Permissions do not care about publish state, so the description has to say so —
+    /// otherwise a neighbouring tool's limitation is silently attributed to ours.
+    /// </summary>
+    [Fact]
+    public void ExplainDescription_SaysPublishStateIsIrrelevant()
+    {
+        var description = NewExplainAccess().Description;
+
+        Assert.Contains("published", description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("draft", description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// "Why can I delete this but not its parent?" needs two calls and a comparison. Left to improvise,
+    /// models instead inferred the second node's verdict from the first — or fabricated it. The description
+    /// must name the pattern and point at the ancestor chain that makes it possible.
+    /// </summary>
+    [Fact]
+    public void ExplainDescription_ExplainsHowToCompareTwoNodes()
+    {
+        var description = NewExplainAccess().Description;
+
+        Assert.Contains("ancestors", description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("once per node", description, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

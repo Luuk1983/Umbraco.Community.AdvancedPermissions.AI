@@ -105,7 +105,7 @@ public sealed class AuditPermissionsToolTests
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
         var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
         var result = await ((IAITool)tool).ExecuteAsync(
-            new AuditPermissionsArgs(AuditScope.Role, roleAlias), CancellationToken.None);
+            new AuditPermissionsArgs(AuditScope.UserGroup, roleAlias), CancellationToken.None);
 
         var report = Assert.IsType<FriendlyAuditReport>(result);
         Assert.Equal(2, report.EntriesAnalyzed);
@@ -113,13 +113,13 @@ public sealed class AuditPermissionsToolTests
 
         var conflict = report.Findings.Single(f => f.RuleId == "allow-deny-conflict");
         Assert.Equal("Warning", conflict.Severity);
-        Assert.Equal("Editors", conflict.Role);
+        Assert.Equal("Editors", conflict.UserGroup);
         Assert.Equal("Delete", conflict.Permission);
         Assert.Equal("News", conflict.Node);
 
         var broad = report.Findings.Single(f => f.RuleId == "everyone-broad-write");
         Assert.Equal("Risk", broad.Severity);
-        Assert.Equal("All Users", broad.Role);
+        Assert.Equal("All Users", broad.UserGroup);
         Assert.Equal("Update", broad.Permission);
         Assert.Equal("All content (root-level default)", broad.Node);
 
@@ -294,7 +294,7 @@ public sealed class AuditPermissionsToolTests
         var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
 
         var result = await ((IAITool)tool).ExecuteAsync(
-            new AuditPermissionsArgs(AuditScope.Role, roleAlias, SeverityMin: AuditSeverity.Risk),
+            new AuditPermissionsArgs(AuditScope.UserGroup, roleAlias, SeverityMin: AuditSeverity.Risk),
             CancellationToken.None);
 
         var report = Assert.IsType<FriendlyAuditReport>(result);
@@ -311,7 +311,7 @@ public sealed class AuditPermissionsToolTests
         var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
 
         var result = await ((IAITool)tool).ExecuteAsync(
-            new AuditPermissionsArgs(AuditScope.Role), CancellationToken.None);
+            new AuditPermissionsArgs(AuditScope.UserGroup), CancellationToken.None);
 
         Assert.IsType<AccessError>(result);
         await _repository.DidNotReceive().GetByRoleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -329,6 +329,44 @@ public sealed class AuditPermissionsToolTests
 
         Assert.IsType<AccessError>(result);
         await _repository.DidNotReceive().GetByNodesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The description must advertise the checks the analyzer actually runs, and no others.
+    /// </summary>
+    /// <remarks>
+    /// It claimed "risky 'this node and descendants' entries" as a general check. No such rule exists:
+    /// <see cref="PermissionAuditAnalyzer"/> only flags a descendants-scoped entry when the permission is
+    /// Manage Permissions. Overselling a check is worse than omitting one — a clean report then reads as
+    /// "we looked and found nothing" for something never looked at, and the copilot relays that
+    /// confidence. Each phrase below anchors one real rule.
+    /// </remarks>
+    /// <param name="expectedPhrase">A phrase naming a check the analyzer genuinely performs.</param>
+    [Theory]
+    [InlineData("All Users")]        // everyone-broad-write
+    [InlineData("Allow entry and a Deny entry")] // allow-deny-conflict; the bare "Allow and Deny" pair
+                                                // is itself banned terminology, so anchor on the entry form
+    [InlineData("manage permissions")] // manage-permissions-descendants
+    [InlineData("Priority Override")]  // priority-override
+    public void Description_NamesOnlyTheChecksTheAnalyzerRuns(string expectedPhrase)
+    {
+        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService).Description;
+
+        Assert.Contains(expectedPhrase, description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The converse of <see cref="Description_NamesOnlyTheChecksTheAnalyzerRuns"/>: the description must
+    /// not imply a broad scope check, because only the Manage Permissions rule looks at entry scope.
+    /// </summary>
+    [Fact]
+    public void Description_DoesNotClaimAGeneralDescendantsScopeCheck()
+    {
+        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService).Description;
+
+        Assert.DoesNotContain("risky 'this node and descendants'", description, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Creates a stubbed <see cref="IEntitySlim"/> exposing the given key.</summary>
