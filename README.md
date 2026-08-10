@@ -1,217 +1,196 @@
+![Advanced Permissions for Umbraco AI Copilot Tools](https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/src/Umbraco.Community.AdvancedPermissions.AI/package_logo_128x128.png)
+
 # Advanced Permissions for Umbraco — AI Copilot Tools
 
-`Umbraco.Community.AdvancedPermissions.AI` is an **optional** companion package for
-[Umbraco.Community.AdvancedPermissions](https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions).
-It makes the Umbraco backoffice **AI copilot permission-aware**: editors and admins can ask, in plain
-language, *who can do what* — and get answers grounded in the package's existing permission-resolution
-engine (including the full reasoning chain), not in the model's guesswork.
+Let editors ask the Umbraco backoffice copilot who can do what, and why, and get an answer computed by
+your actual permission setup instead of guessed by the language model.
 
-> **This package is read-only.** It only *reads and explains* permissions — it never writes them. The
-> `suggestFix` remediation (below) only *computes and describes* the changes an administrator could make
-> by simulating them against the resolver; it applies nothing. AI-*authored* permission changes (with a
-> human approval step) are tracked separately in
-> [issue #33](https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions/issues/33).
+[![NuGet](https://img.shields.io/nuget/v/Umbraco.Community.AdvancedPermissions.AI)](https://www.nuget.org/packages/Umbraco.Community.AdvancedPermissions.AI) [![NuGet Downloads](https://img.shields.io/nuget/dt/Umbraco.Community.AdvancedPermissions.AI)](https://www.nuget.org/packages/Umbraco.Community.AdvancedPermissions.AI) [![License](https://img.shields.io/github/license/Luuk1983/Umbraco.Community.AdvancedPermissions.AI)](https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/blob/main/LICENSE)
 
-## What you can ask the copilot
+---
 
-| Tool | Example prompt |
-|------|----------------|
-| `explain_access` (node aspect) | *"Why can't I delete this page?"*, *"Why can't Jane delete this page?"*, *"What can the Editors group do on /News?"*, *"Who can publish here?"* |
-| `explain_access` (type-create aspect) | *"Why can't I create an Article here?"*, *"What document types can I create under /News?"*, *"Who can create a Landing Page here?"* |
-| `audit_permissions` | *"Audit the permissions for the Editors role."*, *"Are there any risks under /News?"*, *"Is anything misconfigured?"* |
+## Who this is for
 
-| `explain_access` (suggestFix) | *"Why can't I publish this — and what would fix it?"* |
+This is an optional companion to
+[Advanced Permissions for Umbraco](https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions).
+Install it when you use both of these:
 
-`explain_access` is a single parameterized tool: a `subject` argument selects whether to evaluate the
-**current user**, a specific **user**, a single **role** (or "All Users"), or **all roles** at a node.
-An `aspect` argument selects which dimension of access to explain: **node** action permissions (edit /
-delete / publish / move …, the default) or **type-create** — the "Insert Options" question of which
-document types may be created under a node. For `aspect=type-create`, `nodeKey` is the *parent* node;
-supply `contentTypeKey` to focus a single document type, or omit it for the full per-type roster
-(document types that Umbraco's allowed-child-types config disallows are reported distinctly as
-"Not applicable", separate from a permission Deny).
+- Advanced Permissions for Umbraco, to manage who may do what in your content tree.
+- Umbraco AI with its Copilot chat, so there is a copilot in the backoffice for this package to plug into.
 
-Set **`suggestFix=true`** to also get the concrete changes that would grant a *denied* action. This is
-**not guesswork** — the package simulates a small, case-specific set of candidate entry mutations against
-its own pure resolver and returns **only** the changes that actually flip the verdict to Allowed, ranked
-least-privileged-first (remove the Deny → add an Allow on the node → add an Allow on an ancestor → add a
-priority-override Allow). It is the deterministic fix for a real failure mode: an LLM left to itself will
-claim a plain Allow can beat a same-node Deny — it cannot, and the simulation rejects that suggestion (an
-explicit Deny is only beaten by removing it or by a priority-override Allow, which is itself defeated by a
-competing priority-override Deny). `suggestFix` is honoured for the **node** aspect, the
-current-user / user / role subjects (never all-roles), and only when a single `verb` is supplied (keeping
-the work bounded — the all-verbs explanation attaches no remediation). Re-resolution goes **directly**
-through the pure resolver on the in-memory mutated entries, never the cached service, and matches the
-exact role set the verdict used (user groups + All Users for a user; the single role for a role subject).
-Every returned option is a confirmed fact and is phrased as an administrator action — the companion still
-writes nothing.
+If you do not run Umbraco AI, this package has nothing to add. It ships no screens of its own and adds
+nothing to the Users section. Everything it does happens inside the copilot chat, and it only reads your
+permission setup. It never changes it.
 
-`audit_permissions` is likewise parameterized: a `scope` argument selects whether to scan all entries
-for one **role** (the default), everything under a node's **subtree**, or the whole configuration
-(**all**), with an optional minimum-severity filter. The `all` scope is best-effort — it sweeps every
-live document node plus the root-level defaults, so entries left behind on deleted/trashed nodes are
-not included. `audit_permissions` currently covers **node** permission entries only; auditing the
-doc-type create ("Insert Options") entries is a planned follow-up (the analyzer's node-verb rules do
-not map cleanly onto the default-Allow, content-type-keyed doc-type model).
+## The problem it solves
 
-Each tool returns the **structured effective permission plus the reasoning chain**; the copilot turns
-that into a sentence. The AI never decides permissions itself — it only routes the question to a tool
-and phrases the deterministic result your resolver computes.
+Advanced Permissions gives you Allow and Deny entries per user group, each with its own scope, inherited
+down the content tree, with an override for when a user's groups disagree. That is exactly the control
+you want, and it also means a simple question like "why can't I publish this page?" stops having a simple
+answer. Working it out means knowing which groups the person is in, what is set where above the node,
+how far each of those entries reaches, and whether an override is deciding it.
+
+Today an editor asks an administrator, and the administrator traces it by hand in the Access Viewer. That
+costs someone else's time for a question the system can already answer.
+
+It gets worse once a copilot is in the backoffice. An editor will simply ask the chat, and the chat will
+answer from general Umbraco knowledge. That answer is confident, fluent, and wrong, because this
+package's rules are not Umbraco's built-in rules. A plain Allow does not beat a Deny here. Leaving a
+permission blank is not the same as denying it. An override is about disagreeing groups, not about
+parents and children.
+
+This package closes both gaps. It gives the copilot a way to ask your permission engine directly, so
+editors get a correct answer in plain language without going through an administrator, and the copilot
+stops inventing one when it does not know.
+
+## What you can ask
+
+Once it is set up, editors can ask the copilot things like:
+
+**Why is something blocked**
+
+- "Why can't I delete this page?"
+- "Why can't Jane delete this page?"
+- "Why is this editor read-only?"
+- "Why can't I create an Article here?"
+
+**Who can do what**
+
+- "Who can publish here?"
+- "What can the Editors group do on this page?"
+- "Which document types can I create under News?"
+
+**How the permission system works**
+
+- "What is a Priority Override?"
+- "What happens if I leave a permission unset?"
+- "How do I change a permission?"
+
+![The copilot explaining why an action is blocked](https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/copilot_explain_access.jpg)
+
+When the answer is no, editors can also ask what would change it. The copilot works out which permission
+changes would genuinely grant the action, by trying each candidate change against the permission engine
+and keeping only the ones that actually flip the result. It then describes those changes so an
+administrator can make them, cheapest and least far-reaching first. It never makes a change itself, and
+it never offers a fix it has not confirmed.
+
+Every answer comes from your own permission setup, together with the reasoning behind it. The model does
+not decide anything. It picks the right question to ask, then puts the result into a sentence.
 
 ## Requirements
 
-- **Umbraco CMS 17.4.2+** (.NET 10) — required by Umbraco AI.
-- **[Umbraco AI](https://github.com/umbraco/Umbraco.AI) 17.0.0**, installed and configured with an LLM
-  provider. The backoffice chat UI comes from `Umbraco.AI.Agent.Copilot`.
-- **`Umbraco.Community.AdvancedPermissions`** (the main package) — pulled in automatically as a dependency.
+- Umbraco CMS 17.4.0 or newer, on .NET 10. This floor comes from Umbraco AI.
+- [Umbraco AI](https://github.com/umbraco/Umbraco.AI) on the 17 line, installed and configured, with a
+  working copilot chat. The chat itself comes from the `Umbraco.AI.Agent.Copilot` package.
+- Advanced Permissions for Umbraco, which arrives automatically as a dependency.
 
-> **Umbraco v18:** Umbraco AI does not support v18 yet, so this companion targets the **v17** line. It
-> will be forward-ported to v18 once Umbraco AI ships v18 support
-> (track [umbraco/Umbraco.AI#201](https://github.com/umbraco/Umbraco.AI/pull/201)).
 
-## Install
+## Installation
 
 ```bash
 dotnet add package Umbraco.Community.AdvancedPermissions.AI
 ```
 
-The tools and their permission scope (`advanced-permissions:read`) are **auto-discovered** by
-Umbraco AI — no extra configuration beyond having Umbraco AI and an LLM provider set up.
+There is no setup code to write. Installing the package is not enough on its own, though: you also have
+to allow the copilot to use it, which is the next section.
 
-## How it works
+## Setting up Umbraco AI
 
-```mermaid
-flowchart TB
-    Editor([Editor in backoffice])
+All of this happens in the backoffice AI section. If you already have a working copilot chat, skip to
+step 5, which is the only step specific to this package.
 
-    subgraph UAI["Umbraco AI framework — installed separately"]
-        Copilot["Copilot chat UI (Umbraco.AI.Agent.Copilot)"]
-        Agent["Agent runtime + LLM client"]
-        Reg["Tool / scope registry — auto-discovers our tools"]
-        Prov["LLM provider config"]
-    end
+1. **Create a connection.** Pick your provider (OpenAI, Anthropic, and so on) and give it an API key.
+   This needs the matching provider package installed, such as `Umbraco.AI.OpenAI` or
+   `Umbraco.AI.Anthropic`.
+2. **Create a profile.** A profile sets the model to use, along with any guardrails, on top of that
+   connection.
+3. **Set a default chat profile** in the AI settings, choosing one of the profiles you created.
+4. **Set up a default chat agent** for the copilot. Without one there is no chat for these tools to be
+   called from.
+5. **Allow this package's tools on that agent.** Open the chat agent, go to Governance, and under
+   Allowed Tool Scopes tick "Advanced Permissions (read)". All three tools sit under that one scope.
 
-    LLM[("External LLM (OpenAI / Anthropic / …)")]
+![Allowing the Advanced Permissions (read) tool scope on the chat agent](https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/agent_tool_scopes.jpg)
 
-    subgraph AIPkg["This package — Umbraco.Community.AdvancedPermissions.AI"]
-        Tools["2 AITool classes: explain_access (subject = current-user / user / role / all-roles; aspect = node / type-create), audit_permissions"]
-        ReadScope["AIToolScope: advanced-permissions:read"]
-        Path["ContentPathResolver"]
-        Audit["PermissionAuditAnalyzer"]
-        Ground["AdvancedPermissionsGroundingContributor — guarded, document-only system-prompt nudge"]
-        Comp["AdvancedPermissionsAiComposer — registers the services + grounding contributor"]
-    end
+Step 5 is the one people miss. The tools are discovered automatically, so they appear in the list as soon
+as you install the package, but until the agent is allowed to call them the copilot will keep answering
+permission questions from its own general knowledge. Because it sits under a single scope, that same tick
+is also how you take the tools away again, and Umbraco AI's per-user-group governance applies to it like
+any other scope.
 
-    subgraph CorePkg["Existing AdvancedPermissions package — unchanged"]
-        Svc["IAdvancedPermissionService"]
-        Resv["IPermissionResolver (+ reasoning chain)"]
-        Repo["IAdvancedPermissionRepository"]
-    end
+To confirm it works, open a content node, start a copilot chat and ask "who can publish here?". The
+answer should name your real user groups.
 
-    Editor -->|question| Copilot
-    Copilot --> Agent
-    Agent <-->|prompt + tool calls| Prov
-    Prov <--> LLM
-    Reg -. auto-discovers .-> Tools
-    Reg -. auto-discovers .-> ReadScope
-    Comp -. registers .-> Ground
-    Ground -. document-only prompt nudge .-> Agent
-    Agent ==>|LLM picks + calls a tool| Tools
-    Tools -->|resolve| Svc
-    Tools -->|build node path| Path
-    Tools -->|audit only| Audit
-    Path --> Svc
-    Audit --> Repo
-    Svc --> Resv
-    Svc --> Repo
-    Comp -. registers .-> Path
-    Comp -. registers .-> Audit
-    Tools ==>|structured result + reasoning| Agent
-```
+## The tools
 
-Request flow for *"Why can't Jane delete this page?"*:
+Three tools are registered, all under the `advanced-permissions:read` scope. The copilot picks between
+them; you never call them yourself.
 
-```mermaid
-sequenceDiagram
-    actor E as Editor
-    participant C as Umbraco AI Copilot
-    participant L as LLM (via provider)
-    participant T as uap_explain_access
-    participant P as ContentPathResolver
-    participant S as IAdvancedPermissionService
+### `uap_explain_access`
 
-    E->>C: "Why can't Jane delete this page?"
-    C->>L: prompt + tool catalogue + grounded context (node, user)
-    Note over L: Picks explain_access;<br/>fills subject = User, userKey, nodeKey, verb = Delete
-    L->>T: invoke(subject: User, userKey, nodeKey, "Umb.Document.Delete")
-    T->>P: GetPathFromRoot(nodeKey)
-    P-->>T: [rootKey … nodeKey]
-    T->>S: ResolveAsync(user, node, path, verb)
-    S-->>T: EffectivePermission { IsAllowed: false, reasoning[] }
-    T-->>L: structured result (reasoning chain)
-    L-->>C: turns the reasoning into plain language
-    C-->>E: "Jane can't — Editors is explicitly Denied Delete at /News; this page inherits it."
-```
+Answers what the effective permission is at a content node, and why. A `subject` argument chooses whose
+access to evaluate: the current user, a specific user, a single user group (including "All Users"), or
+every user group at once. An `aspect` argument chooses which dimension: `node` for action permissions
+such as edit, delete and publish, or `type-create` for the Insert Options question of which document
+types may be created under a node. For `type-create` the `nodeKey` is the parent node. Supply a
+`contentTypeKey` to focus one document type, or leave it out for the full roster. Document types that
+Umbraco's own allowed-child-types configuration rules out come back as "Not applicable", kept separate
+from a permission Deny.
 
-- **Umbraco AI** (top) provides the copilot chat, the agent runtime, and the LLM connection.
-- **This package** (middle) adds two auto-discovered `[AITool]` classes, a read-only tool scope, helper
-  services (`ContentPathResolver`, `PermissionAuditAnalyzer`, `PermissionPresenter`), and a guarded
-  runtime-context contributor that grounds the copilot on document conversations.
-- **The existing permission package** (bottom) is **unchanged** — the tools call its
-  `IAdvancedPermissionService`.
+Set `suggestFix=true` to get the confirmed fixes described above. The package builds a small,
+case-specific set of candidate changes, simulates each one against its own pure resolver, and returns
+only those that actually flip the verdict to allowed, ranked least-privileged first: remove the Deny
+entry, add an Allow on the node, add an Allow on an ancestor, add a priority-override Allow. This exists
+because a language model left to itself will claim a plain Allow entry can beat a Deny entry on the same
+node. It cannot, and the simulation throws that suggestion away. Re-resolution runs directly against the
+pure resolver on an in-memory copy of the entries, never the cached service, and uses the same set of
+user groups the original verdict used. `suggestFix` applies to the node aspect, to the current-user, user
+and user-group subjects, and only when a single permission is in focus.
+
+### `uap_audit_permissions`
+
+Scans stored permission entries against four checks: All Users allowed a write permission across the
+whole site from the root, an Allow entry and a Deny entry for the same permission on the same node, a
+user group able to manage permissions across a node and its descendants, and Priority Override entries. A
+`scope` argument audits one user group (the default), everything under a node, or the whole
+configuration, with an optional minimum-severity filter.
+
+Those four checks are the entire rule set, so a clean result means those four found nothing rather than
+that the configuration is correct in general. The whole-configuration scope is best-effort: it sweeps
+every live document node plus the root-level defaults, so entries left behind on deleted or trashed nodes
+are not included. It covers node permission entries only. Auditing the document-type Insert Options
+entries is planned.
+
+### `uap_explain_concepts`
+
+Takes no arguments and reads nothing. It returns the conceptual reference: how permissions are stored,
+how competing entries are resolved, what each scope reaches, what Priority Override actually is, how
+Insert Options differ, and where to change a permission in the backoffice. It exists because the copilot
+answered these questions confidently and wrongly when left to its own knowledge. The wording comes from
+the base package's own help documentation, so the copilot explains the model exactly as the in-product
+help does.
 
 ## Security
 
-- **Read-only** — nothing the AI does here writes data. The `suggestFix` remediation depends only on the
-  pure resolver, a single repository read, and a local copy of the entry list; it never calls any
-  save/delete path and never persists a simulated mutation.
-- **No privilege escalation by design** — answers come from the same resolver the backoffice uses, so
-  the model cannot invent or grant a permission rule; it can only report what your engine computes. The
-  remediation only names roles and nodes already present in the reasoning chain.
-- Tools live under the `advanced-permissions:read` scope, so Umbraco AI's per-user-group governance can
-  allow or deny them — `suggestFix` stays within that same read scope.
+- Nothing here writes data. The fix suggestions depend only on the pure resolver, a single read from the
+  repository, and a local copy of the entry list. No save or delete path is ever called, and a simulated
+  change is never persisted.
+- No privilege escalation by design. Answers come from the same resolver the backoffice itself uses, so
+  the model cannot invent or grant a permission. It can only report what your engine computes, and a
+  suggested fix names only user groups and nodes already present in the reasoning.
+- Everything sits under the `advanced-permissions:read` scope, so Umbraco AI's per-user-group governance
+  can allow or deny it like any other tool.
 
-## Local verification (manual)
 
-The test site in this repo is already wired to this package and the Umbraco AI runtime + copilot. To
-verify end-to-end you only need to add **your own** LLM provider:
+## Contributing
 
-1. Add a provider package to the test site and pin its version, e.g.:
-   ```bash
-   dotnet add tests/Umbraco.Community.AdvancedPermissions.AI.TestSite/Umbraco.Community.AdvancedPermissions.AI.TestSite.csproj package Umbraco.AI.OpenAI
-   ```
-2. Set the key via user-secrets (not committed) and configure a connection/profile (in the backoffice AI
-   UI on first run, or in `appsettings` referencing `$Umbraco:AI:Secrets:OpenAIApiKey`):
-   ```bash
-   dotnet user-secrets set "Umbraco:AI:Secrets:OpenAIApiKey" "sk-..." --project tests/Umbraco.Community.AdvancedPermissions.AI.TestSite
-   ```
-3. Run and open the backoffice copilot:
-   ```bash
-   dotnet run --project tests/Umbraco.Community.AdvancedPermissions.AI.TestSite -p:NuGetAudit=false --urls http://localhost:5000
-   ```
-4. Try: *"What can the Editors group do on the home page?"*, *"Who can publish here?"*,
-   *"Audit the permissions for the Editors role."* and confirm the matching `uap_*` tool fires.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Design notes / decisions
+## Feedback
 
-- **Optional companion package**, separate from the core package, so the permission package never forces
-  the AI framework or an LLM provider on users who don't want it.
-- **v17-first** — Umbraco AI is v17-only today; built and tested on v17, forward-ported to v18 when
-  Umbraco AI supports it.
-- **Native C# `[AITool]`s, not MCP** — Umbraco's MCP servers don't auto-expose custom Management API
-  endpoints, and the in-backoffice copilot consumes C# tools directly. (An external MCP server for
-  developer/automation agents is possible future work, not part of this package.)
-- **Read-only first** — at Umbraco AI 17.0.0 a backend tool's `IsDestructive` flag does **not** trigger
-  the copilot's human-in-the-loop approval (that is a frontend-tool mechanism). Permission *writes* are
-  therefore deferred to [#33](https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions/issues/33),
-  where they will be built as a frontend approval tool calling the existing permission endpoints.
-- **Guarded grounding** — a small `IAIRuntimeContextContributor`
-  (`AdvancedPermissionsGroundingContributor`) prepends one short system-prompt line **on document
-  conversations only**. It tells the copilot that this site uses Advanced Permissions (so a block or
-  read-only editor may be a permission `Deny`, not a structural limit) and to reach for the
-  `uap_explain_access` / `uap_audit_permissions` tools before concluding otherwise — and it carries
-  enough of the model (Allow/Deny per user group, scopes, inheritance, priority, Insert Options) to
-  answer "how do I…" questions inline (the how-to is grounding, not a tool). It is deliberately defensive
-  because Umbraco AI runs contributors on every agent run with no try/catch around them: it gates on the
-  focused entity being a `document`, is append-only (never writes `Variables`/`Data`), wraps its whole
-  body in a catch-all so it can never abort a run, and contributes only a static string (no I/O).
+Found a bug or have a feature request? Please
+[open an issue](https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/issues) on GitHub.
+
+## License
+
+Licensed under the [MIT License](LICENSE).

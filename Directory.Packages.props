@@ -5,34 +5,41 @@
   <ItemGroup>
     <!-- Base package — the AI companion augments it and resolves its services at runtime.
          Real dependency (flows Abstractions transitively for the compile-time contract). Pinned to
-         the v17 line; the -0 upper bound excludes v18 prereleases. -->
-    <PackageVersion Include="Umbraco.Community.AdvancedPermissions" Version="[17.2.0,18.0.0-0)" />
-
-    <!-- Umbraco AI — the [AITool] runtime. Realigned to the CMS major in the 2026.06 releases, so
-         17.0.0 targets Umbraco.Cms 17.x and requires Umbraco.Cms >= 17.4.2. Agent/providers/Copilot
-         are TestSite-only (manual verification); providers are referenced by the human when testing. -->
-    <PackageVersion Include="Umbraco.AI" Version="17.0.0" />
+         the v17 line with a PLAIN stable upper bound: a "-0" bound packs fine but nuget.org rejects
+         it at push time (400 BadRequest: invalid Version: '18.0.0-0'), and the published base
+         package's own nuspec uses plain "[17.3.0, 18.0.0)" bounds — that is the proven form. -->
+    <PackageVersion Include="Umbraco.Community.AdvancedPermissions" Version="[17.2.0,18.0.0)" />
+    <!-- Umbraco AI — the [AITool] authoring contract. The package references ONLY Umbraco.AI.Core:
+         it needs the attributes ([AITool]/[AIToolScope]), IRuntimeContextContributor, and the
+         AIRuntimeContextContributors() builder extension — all shipped in Umbraco.AI.Core, which
+         also flows the Umbraco.Cms.* contracts transitively. The full Umbraco.AI runtime bundle
+         (Startup/Web/Persistence/StaticAssets) is a HOST concern, referenced by the TestSite only.
+         Realigned to the CMS major in the 2026.06 releases, so 17.0.0 targets Umbraco.Cms 17.x.
+         Capped below 18 like the base-package pin: Umbraco.AI majors track the CMS major, so an
+         uncapped floor would claim v18 compatibility this v17-targeting package cannot honour.
+         Agent/providers/Copilot are TestSite-only (manual verification). -->
+    <PackageVersion Include="Umbraco.AI.Core" Version="[17.0.0,18.0.0)" />
+    <PackageVersion Include="Umbraco.AI" Version="17.2.0" />
     <PackageVersion Include="Umbraco.AI.Agent" Version="17.0.0" />
-    <PackageVersion Include="Umbraco.AI.Agent.Copilot" Version="17.0.0" />
-    <PackageVersion Include="Umbraco.AI.Anthropic" Version="17.0.0" />
+    <PackageVersion Include="Umbraco.AI.Agent.Copilot" Version="17.0.1" />
+    <PackageVersion Include="Umbraco.AI.Anthropic" Version="17.0.2" />
     <PackageVersion Include="Umbraco.AI.OpenAI" Version="17.0.0" />
-
-    <!-- Umbraco CMS meta — TestSite only. The ONE place the 17.4.2 floor is explicit (CPM requires
-         a version for the direct reference); it matches Umbraco.AI's requirement. The package
-         project declares NO direct Umbraco.Cms.* references — they flow transitively. -->
-    <PackageVersion Include="Umbraco.Cms" Version="[17.4.2,18.0.0)" />
-
+    <!-- Umbraco CMS meta — TestSite only (CPM requires a version for the direct reference). The
+         package project declares NO direct Umbraco.Cms.* references — they flow transitively, and the
+         real floor is computed from the dependencies' nuspecs: Umbraco.AI.Core 17.0.0 requires
+         [17.4.0, 17.999.999) and the base package [17.3.0, 18.0.0), so 17.4.0 wins. This pin only has
+         to sit at or above that floor. -->
+    <PackageVersion Include="Umbraco.Cms" Version="17.5.3" />
     <!-- TestSite infra -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.6" />
-
     <!-- Build / versioning — tooling tracks the v18 base repo, NOT the v17 Umbraco line. -->
     <PackageVersion Include="MinVer" Version="7.0.0" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
-
     <!-- Testing — tooling tracks the v18 base repo. -->
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
+    <PackageVersion Include="Umbraco.TheStarterKit" Version="17.0.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
