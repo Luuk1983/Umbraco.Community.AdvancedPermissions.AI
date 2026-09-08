@@ -35,11 +35,25 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Services;
 /// </description></item>
 /// </list>
 /// </remarks>
-/// <param name="resolver">The pure resolver used to re-resolve each candidate mutation.</param>
-/// <param name="repository">The repository read once to load the current entries for the roles+path.</param>
+/// <param name="resolver">
+/// The pure resolver used to re-resolve each candidate mutation. Shared across both permission trees: it
+/// resolves a verb against a set of entries without caring which table they came from, which is exactly
+/// why the simulation approach carries over to the Library unchanged.
+/// </param>
+/// <param name="repository">
+/// The content repository, read once to load the current entries for the roles+path when remediating in
+/// the <see cref="PermissionDomain.Content"/> domain.
+/// </param>
+/// <param name="elementRepository">
+/// The Library element repository, used instead when remediating in the
+/// <see cref="PermissionDomain.Library"/> domain. Reading the wrong one would simulate against the wrong
+/// entry set and return a "confirmed" fix that does nothing, so the choice is driven by the caller's
+/// explicit domain rather than inferred from the verb.
+/// </param>
 public sealed class PermissionRemediator(
     IPermissionResolver resolver,
-    IAdvancedPermissionRepository repository)
+    IAdvancedPermissionRepository repository,
+    IElementPermissionRepository elementRepository)
     : IPermissionRemediationService
 {
     /// <summary>The maximum number of confirmed options returned, keeping the answer focused.</summary>
@@ -58,6 +72,7 @@ public sealed class PermissionRemediator(
         IReadOnlyList<string> roleAliases,
         string verb,
         PermissionState defaultState,
+        PermissionDomain domain = PermissionDomain.Content,
         CancellationToken cancellationToken = default)
     {
         if (roleAliases.Count == 0 || pathFromRoot.Count == 0)
@@ -68,8 +83,11 @@ public sealed class PermissionRemediator(
         cancellationToken.ThrowIfCancellationRequested();
 
         // ── ONE read. Reused across every candidate re-resolution — no per-candidate DB access. ──
+        // The domain picks the table; everything downstream (the mutations and the pure re-resolution)
+        // is identical for both trees.
+        var source = domain == PermissionDomain.Library ? elementRepository : (INodePermissionRepository)repository;
         var nodeKeys = new List<Guid>(pathFromRoot) { AdvancedPermissionsConstants.VirtualRootNodeKey };
-        var stored = await repository.GetByRolesAndNodesAsync(roleAliases, nodeKeys, cancellationToken);
+        var stored = await source.GetByRolesAndNodesAsync(roleAliases, nodeKeys, cancellationToken);
 
         // Local, mutable working copy filtered to the single verb in play. All mutations operate on
         // copies of this list; the original is never modified and never re-fetched.

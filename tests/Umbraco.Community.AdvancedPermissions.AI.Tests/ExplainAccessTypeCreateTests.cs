@@ -225,6 +225,7 @@ public sealed class ExplainAccessTypeCreateTests
                 Arg.Is<IReadOnlyList<string>>(r => r.Contains(roleAlias) && r.Contains(AdvancedPermissionsConstants.EveryoneRoleAlias)),
                 path,
                 ctKey,
+                AdvancedPermissionsConstants.VerbCreateOfType,
                 Arg.Any<CancellationToken>())
             .Returns(CreatePerm(isAllowed: false, roleAlias, nodeKey));
 
@@ -330,6 +331,7 @@ public sealed class ExplainAccessTypeCreateTests
                 Arg.Is<IReadOnlyList<string>>(r => r.Contains("editors")),
                 path,
                 ctKey,
+                AdvancedPermissionsConstants.VerbCreateOfType,
                 Arg.Any<CancellationToken>())
             .Returns(CreatePerm(isAllowed: true, "editors", nodeKey));
         _docTypePermissions
@@ -337,6 +339,7 @@ public sealed class ExplainAccessTypeCreateTests
                 Arg.Is<IReadOnlyList<string>>(r => r.Contains("writers")),
                 path,
                 ctKey,
+                AdvancedPermissionsConstants.VerbCreateOfType,
                 Arg.Any<CancellationToken>())
             .Returns(CreatePerm(isAllowed: false, "writers", nodeKey));
         _docTypePermissions
@@ -344,6 +347,7 @@ public sealed class ExplainAccessTypeCreateTests
                 Arg.Is<IReadOnlyList<string>>(r => r.Count == 1 && r[0] == AdvancedPermissionsConstants.EveryoneRoleAlias),
                 path,
                 ctKey,
+                AdvancedPermissionsConstants.VerbCreateOfType,
                 Arg.Any<CancellationToken>())
             .Returns(CreatePerm(isAllowed: false, AdvancedPermissionsConstants.EveryoneRoleAlias, nodeKey));
 
@@ -377,7 +381,7 @@ public sealed class ExplainAccessTypeCreateTests
 
         Assert.IsType<AccessError>(result);
         await _docTypePermissions.DidNotReceive().ResolveCreateForRolesAsync(
-            Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+            Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     /// <summary>

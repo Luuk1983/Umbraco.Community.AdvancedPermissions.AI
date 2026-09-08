@@ -34,12 +34,15 @@ public sealed class ToolSchemaTerminologyTests
     public static TheoryData<Type> ModelVisibleTypes() =>
     [
         typeof(ExplainAccessArgs),
+        typeof(ExplainLibraryAccessArgs),
         typeof(AuditPermissionsArgs),
         typeof(ExplainConceptsArgs),
         typeof(ExplainSubject),
         typeof(ExplainAspect),
+        typeof(LibraryAspect),
         typeof(ExplainResponseFormat),
         typeof(AuditScope),
+        typeof(AuditDomain),
         typeof(AuditSeverity),
         typeof(AccessReason),
         typeof(AccessVerdict),
@@ -52,10 +55,17 @@ public sealed class ToolSchemaTerminologyTests
         typeof(TypeCreateExplanation),
         typeof(TypeCreateRoster),
         typeof(TypeCreateRosterReport),
+        typeof(ElementTypeCreateVerdict),
+        typeof(ElementTypeCreateExplanation),
+        typeof(ElementTypeCreateRoster),
+        typeof(ElementTypeCreateRosterReport),
         typeof(FriendlyAuditFinding),
         typeof(FriendlyAuditReport),
         typeof(NodeRef),
         typeof(PermissionConcepts),
+        typeof(ExplainEditorsArgs),
+        typeof(EditorGuide),
+        typeof(EditorSurface),
     ];
 
     /// <summary>
@@ -98,6 +108,8 @@ public sealed class ToolSchemaTerminologyTests
     [InlineData("AccessRoster", typeof(AccessRoster), "DeniedUserGroups")]
     [InlineData("TypeCreateRoster", typeof(TypeCreateRoster), "AllowedUserGroups")]
     [InlineData("TypeCreateRoster", typeof(TypeCreateRoster), "DeniedUserGroups")]
+    [InlineData("ElementTypeCreateRoster", typeof(ElementTypeCreateRoster), "AllowedUserGroups")]
+    [InlineData("ElementTypeCreateRoster", typeof(ElementTypeCreateRoster), "DeniedUserGroups")]
     [InlineData("FriendlyAuditFinding", typeof(FriendlyAuditFinding), "UserGroup")]
     public void ModelVisibleNames_SayUserGroup(string typeName, Type type, string expectedMember)
     {
@@ -118,5 +130,67 @@ public sealed class ToolSchemaTerminologyTests
         Assert.Contains("UserGroup", Enum.GetNames<ExplainSubject>());
         Assert.Contains("AllUserGroups", Enum.GetNames<ExplainSubject>());
         Assert.Contains("UserGroup", Enum.GetNames<AuditScope>());
+    }
+
+    /// <summary>
+    /// Types that live in the models namespace but are deliberately NOT model-visible, each for a stated
+    /// reason. Membership here is a decision, not an oversight — which is the point of
+    /// <see cref="ModelVisibleTypes_ListIsComplete"/>.
+    /// </summary>
+    private static readonly Dictionary<Type, string> DeliberatelyNotModelVisible = new()
+    {
+        // Internal carriers of base-package values. Documented in this class's remarks: they keep the
+        // role-named members on purpose, and the presenter converts them before anything reaches the
+        // model, so neither is ever serialized.
+        [typeof(AuditFinding)] = "internal carrier of base-package values; converted by the presenter",
+        [typeof(RemediationOption)] = "internal carrier of base-package values; converted by the presenter",
+        [typeof(AuditReport)] = "internal; projected to FriendlyAuditReport before the model sees it",
+        [typeof(RemediationActionKind)] = "internal ranking/wording driver on RemediationOption",
+
+        // Internal plumbing the model never chooses. The model picks a tool by name instead, so these
+        // never appear in a schema.
+        [typeof(PermissionDomain)] = "internal plumbing; the model selects a tool by name, not a domain",
+        [typeof(LibraryNodeKind)] = "internal; drives applicability, surfaced only as a 'Not applicable' result",
+    };
+
+    /// <summary>
+    /// Guards the guard: every public model type is either declared model-visible (and therefore
+    /// terminology-checked above) or explicitly excluded with a reason.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ModelVisibleTypes"/> is hand-maintained, so without this test it silently falls behind
+    /// the moment someone adds a returned type — and a type that is never checked is exactly where a
+    /// role-named or wrong-noun field slips into an answer. That is not hypothetical: the v18 Library
+    /// work added four returned types at once, and the reason they needed their own records rather than
+    /// reusing the document ones was precisely a wrong noun (<c>DocumentType</c> for an element type).
+    /// A new model now forces a deliberate choice instead of defaulting to unchecked.
+    /// </remarks>
+    [Fact]
+    public void ModelVisibleTypes_ListIsComplete()
+    {
+        var declared = ModelVisibleTypes()
+            .Cast<object[]>()
+            .Select(row => (Type)row[0])
+            .ToHashSet();
+
+        var publicModelTypes = typeof(ExplainAccessArgs).Assembly
+            .GetTypes()
+            .Where(t => t.IsPublic
+                        && t.Namespace == typeof(ExplainAccessArgs).Namespace
+                        && (t.IsEnum || t.IsClass)
+                        && !t.IsAbstract
+                        && !t.IsNested);
+
+        var unaccounted = publicModelTypes
+            .Where(t => !declared.Contains(t) && !DeliberatelyNotModelVisible.ContainsKey(t))
+            .Select(t => t.Name)
+            .OrderBy(n => n)
+            .ToList();
+
+        Assert.True(
+            unaccounted.Count == 0,
+            "These model types are neither terminology-checked nor deliberately excluded. Add each one to "
+            + "ModelVisibleTypes() if a tool returns it (or the model types it), or to "
+            + $"DeliberatelyNotModelVisible with a reason: {string.Join(", ", unaccounted)}");
     }
 }

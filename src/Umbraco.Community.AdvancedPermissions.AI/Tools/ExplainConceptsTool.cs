@@ -27,6 +27,11 @@ public sealed class ExplainConceptsTool : AIToolBase<ExplainConceptsArgs>
     /// <summary>The conceptual reference. Static: the same answer every time, with no I/O.</summary>
     private static readonly PermissionConcepts Concepts = new(
         Model:
+            "The package governs TWO independent trees with the same machinery: the content tree, and the " +
+            "Library (reusable items and folders that live outside the content tree). Everything below — " +
+            "Allow/Deny, scopes, inheritance, the All Users baseline, Priority Override and the precedence " +
+            "order — applies identically to both, but they are stored and resolved SEPARATELY, so a " +
+            "permission in one says nothing about the other. " +
             "Access is governed by explicit Allow/Deny entries per user group (including the special 'All " +
             "Users' group, a baseline reaching every backoffice user) on content nodes, with tree " +
             "inheritance. Leaving a permission unset does not store a Deny — there is no separate 'inherit' " +
@@ -68,13 +73,18 @@ public sealed class ExplainConceptsTool : AIToolBase<ExplainConceptsArgs>
             "becomes unavailable either because it is not an allowed child of that parent (filtered out of " +
             "the list by Umbraco's own configuration) or because a Deny entry blocks it.",
         HowToChange:
-            "Open the Users section, choose 'Content Permissions' in the sidebar, and open the Permissions " +
-            "Editor. Pick the user group from the toolbar, find the node in the content tree (or use the " +
-            "Default permissions row for a site-wide baseline), click the cell for that action, set Allow or " +
-            "Deny with the appropriate scope, and Save. To block an action for everyone on a single node — " +
-            "for example protecting the homepage from deletion — add one entry: All Users group, Deny, that " +
-            "action, scope 'This Node Only'. Document-type creation is configured under 'Document Type " +
-            "Permissions' in the same section.");
+            "Everything is in the backoffice's Users section, whose sidebar carries four groups — one per " +
+            "domain: 'Content Permissions', 'Document Type Permissions', 'Library Permissions' and 'Library " +
+            "Element Type Permissions'. Each group holds exactly two items: 'Permissions Editor' (to change " +
+            "a permission) and 'Access Viewer' (read-only, to understand one). So the path is always: Users " +
+            "section -> the group for the domain -> Permissions Editor or Access Viewer. " +
+            "Inside a Permissions Editor, pick the user group from the toolbar (the Document Type editor also " +
+            "needs a document type), find the node in the tree — or use the Default permissions row for a " +
+            "baseline — click the cell for that permission, set Allow or Deny with the appropriate scope, and " +
+            "Save. To block an action for everyone on a single node, for example protecting the homepage from " +
+            "deletion, add one entry: All Users group, Deny, that permission, scope 'This Node Only'. " +
+            "For which of the eight screens answers a particular question, and how they differ, call " +
+            "uap_explain_editors.");
 
     /// <inheritdoc />
     public override string Description =>

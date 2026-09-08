@@ -5,15 +5,21 @@
 Optional **AI companion** for `Umbraco.Community.AdvancedPermissions`. Ships native C# Umbraco AI
 copilot tools (`[AITool]`s via `Umbraco.AI`) that explain effective permissions, find which user
 groups can access a node, and audit permission configuration — read-only, grounded in the base
-package's permission-resolution engine. **Umbraco v17-first** (targets `net10.0`).
+package's permission-resolution engine. **Umbraco v18-first** (targets `net10.0`). The v17 line is
+maintained on the `v17/main` branch; `main` is v18.
 
 ## Guiding principle — where "how" comes from
 
-The **v18 `Umbraco.Community.AdvancedPermissions` repo** (`C:\GitHub\UmbracoAdvancedSecurity_v18`)
-is the canonical reference for *how* to do things — csproj/MSBuild structure, workflows,
-`Directory.Build.props`, `.editorconfig`, packaging conventions. Only the **targeted versions**
-differ: Umbraco-line packages are pinned to v17; build/test tooling tracks the v18 repo. Use the
-base repo's `v17/feature/umbraco-ai-integration` branch only for AI-package *content*, not conventions.
+The **v18 `Umbraco.Community.AdvancedPermissions` repo** (`C:\GitHub\UmbracoAdvancedSecurity`,
+branch `main`) is the canonical reference for *how* to do things — csproj/MSBuild structure, workflows,
+`Directory.Build.props`, `.editorconfig`, packaging conventions — **and** for what the
+product actually does, since every string this package shows an editor is sourced from it.
+
+**Read it via git, never the working tree.** `git -C C:/GitHub/UmbracoAdvancedSecurity show main:<path>`
+(or a tag such as `v18.1.0`). That clone's working tree has been observed holding a stale `manifests.ts`
+that disagreed with `HEAD` — it showed 4 menu items where the released package has 8 — exactly the kind
+of thing that gets hard-coded into a grounding string and shipped wrong. Note also that the Bash tool's
+cwd resets between calls, so a relative-path grep can silently read the wrong repo.
 
 ## Solution structure
 
@@ -21,7 +27,7 @@ base repo's `v17/feature/umbraco-ai-integration` branch only for AI-package *con
       Umbraco.Community.AdvancedPermissions.AI/          # The package (Razor SDK): Tools, Services, Models, Scopes, wwwroot/App_Plugins
     tests/
       Umbraco.Community.AdvancedPermissions.AI.Tests/    # xUnit + NSubstitute unit tests
-      Umbraco.Community.AdvancedPermissions.AI.TestSite/ # Minimal bootable Umbraco 17 site + AI copilot for manual verification
+      Umbraco.Community.AdvancedPermissions.AI.TestSite/ # Minimal bootable Umbraco 18 site + AI copilot for manual verification
     Memory/Plans/                                        # Design + implementation plans
 
 No Core/Data/Client projects: the package has no persistence and no Vite/Lit frontend — its
@@ -29,20 +35,23 @@ No Core/Data/Client projects: the package has no persistence and no Vite/Lit fro
 
 ## Dependencies
 
-- **`Umbraco.Community.AdvancedPermissions`** (`[17.2.0,18.0.0)`) — the base package. A real
+- **`Umbraco.Community.AdvancedPermissions`** (`[18.1.0,19.0.0)`) — the base package. The floor is
+  **18.1.0**, not 18.0.0: the Library APIs this package reads (`IElementNodePermissionService`,
+  `ElementVerbs`, `VerbElementCreateOfType`) start there. A real
   runtime dependency: the tools resolve its services from DI. It flows `Abstractions` transitively,
   so the package compiles against the contract without a separate reference. **No direct
   `Umbraco.Cms.*` references** — they arrive transitively (the CMS floor is implicit; see below).
   Upper bounds are **plain stable versions** — nuget.org rejects a `-0` bound at push time (see RELEASE.md).
-- **`Umbraco.AI.Core`** (`[17.0.0,18.0.0)`) — the `[AITool]` authoring contract the package
-  references; the full `Umbraco.AI` runtime is a host concern (the TestSite runs `Umbraco.AI` 17.2.0).
-  Realigned to the CMS major in 2026.06.
-- **The effective Umbraco CMS floor is `17.4.0`**, and it is *computed*, never declared here. Read it off
-  the dependencies' own nuspecs: `Umbraco.AI.Core` 17.0.0 requires `Umbraco.Cms.* [17.4.0, 17.999.999)`
-  and the base package requires `[17.3.0, 18.0.0)`, so the higher floor wins. Do not restate this number
-  from memory (it was documented as 17.4.2 for a while and that was wrong) — re-derive it from the
-  nuspecs whenever a dependency version moves, and update the README's Requirements section to match.
-  Note `Umbraco.AI.Core`'s `17.999.999` ceiling: the package physically cannot install on Umbraco 18.
+- **`Umbraco.AI.Core`** (`[18.0.0,19.0.0)`) — the `[AITool]` authoring contract the package
+  references; the full `Umbraco.AI` runtime is a host concern (the TestSite runs `Umbraco.AI` 18.3.1).
+  Umbraco.AI majors track the CMS major.
+- **The effective Umbraco CMS floor is `18.0.0`**, and it is *computed*, never declared here. Read it off
+  the dependencies' own nuspecs: `Umbraco.AI.Core` 18.3.1 requires `Umbraco.Cms.* [18.0.0, 18.999.999)`
+  and the base package requires `[18.0.0, 19.0.0)`, so they agree at 18.0.0. Do not restate this number
+  from memory (on the v17 line it was documented as 17.4.2 for a while and that was wrong) — re-derive it
+  from the nuspecs whenever a dependency version moves, and update the README's Requirements section to
+  match. Note `Umbraco.AI.Core`'s `18.999.999` ceiling: the package physically cannot install on
+  Umbraco 19, whatever the base-package bound says.
 
 ## Version sync (backoffice == NuGet)
 
@@ -61,14 +70,80 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
 
 ## Gotchas
 
+- **Two trees, one spine.** v18 added the **Library** (elements and element folders) as a second
+  permission tree alongside content. Same machinery — Allow/Deny, scopes, inheritance, All Users,
+  Priority Override — but separate tables, separate Umbraco object types, separate verbs, so an answer
+  from the wrong tree is about the wrong thing. `PermissionDomain` (`Content` | `Library`) is the single
+  concept threaded through the shared services, and how it is threaded differs on purpose: the
+  nine-method `IPermissionPresenter` is **bound** once via `For(PermissionDomain)` (so no signature or
+  call site carries it), while the single-method remediator and analyzer take a plain `domain` argument.
+  All default to `Content`, so v17 call sites keep working. `PermissionDomain` is **internal plumbing and
+  never a tool argument** — the model picks a tool by name, which is a clearer choice than a flag; a test
+  enforces that it stays out of the model-visible schema.
+- **Explain got a sibling tool; audit got an argument.** Deliberate asymmetry, and worth preserving.
+  `uap_explain_library_access` is separate from `uap_explain_access` because they differ in *arguments
+  and reasoning* — library element-type creation takes **no node at all**. `uap_audit_permissions` just
+  takes a `domain` (four of them: `content`, `library`, `document-types`, `library-element-types`),
+  because those paths differ mainly in *which store to read* and all yield the same entry shape.
+- **The audit's broad-risk rule points in OPPOSITE directions per domain.** Node permissions are denied
+  unless allowed, so the risk is a blanket All Users **Allow** of a write permission. The create filters
+  are allowed unless denied and can only narrow, so a blanket Allow there grants nothing (false positive)
+  and the real risk is a blanket All Users **Deny**, which hides a type from everyone (false negative for
+  the Allow-only rule). `everyone-broad-write` vs `everyone-broad-create-deny`. Do not unify them.
+- **Create-filter entries must be analyzed ONE CONTENT TYPE AT A TIME.** They are keyed on (node, group,
+  content type, verb) while the analyzer reasons over (node, group, verb), so two *different* document
+  types with an Allow and a Deny at the same node for the same group share every key it looks at without
+  being in conflict. `AnalyzeCreateFilterAsync` groups by content type, analyzes each group, and stamps
+  each finding with `AuditFinding.ContentTypeKey` — which the presenter renders, because a finding that
+  cannot name its type is useless to a reviewer.
+- **Never infer "all entries" from the All Users entries.** The create-filter repository has no
+  "everything" read. Discovering content types from `$everyone` entries misses any type configured only
+  for a named group — a silent under-report in something read as a risk assessment. Enumerate the user
+  groups and union `GetByRoleAsync` per group instead (each entry belongs to exactly one group, so no
+  de-duplication is needed). This was a real defect, caught only when the document-type domain was added.
+- **`ContextKeys.EntityType`, never `ContextKeys.ElementType`.** `Umbraco.AI.Core` has both, and
+  `ElementType` means a **block-editor** element type — nothing to do with the Library. The grounding's
+  Library gate reads `EntityType` and matches `element` / `element-folder` (values taken from the base
+  package's own condition classes). Gating on the wrong key would silently never fire; a test pins it.
+- **Applicability is checked before resolving, not after.** The Library shows a hatched **N/A** cell for
+  combinations with no meaning — `Create` on a single item, and `Publish`/`Unpublish`/`Duplicate`/
+  `Rollback` on a folder. The resolver returns an ordinary Allow/Deny for those anyway, and relaying it
+  would have the copilot assert "Publish is denied on this folder" and send someone hunting for an entry
+  that is not there. `LibraryVerbApplicability` owns the rule (sourced from `library-permissions.md`);
+  `LibraryNodeKind.Unknown` makes **no** applicability claim, which is the safe failure.
+- **Element-type entries share a table with document-type entries**, distinguished *only* by the verb
+  (`Umb.Element.CreateOfType` vs `Umb.Document.CreateOfType`). Every read of that store must filter by
+  verb, or a document-type finding gets reported as a Library one. Both create-filter call sites pass the
+  verb explicitly rather than relying on the default — which also removes the positional-binding trap
+  that `ResolveCreateForRolesAsync` sprang when it gained a defaulted `verb` parameter *before*
+  `cancellationToken`. When adding a parameter to a service of our own, put it **before** the token so
+  existing positional calls break loudly instead of silently re-binding.
+- **`uap_explain_editors` is the fifth tool, and its job is the boundaries.** Five tools now:
+  `uap_explain_access`, `uap_explain_library_access`, `uap_audit_permissions`, `uap_explain_concepts`,
+  `uap_explain_editors`. The last one mirrors the base package's nine per-surface help docs the way
+  `uap_explain_concepts` mirrors `concepts.md` — a split that follows the base package's own, since
+  `concepts.md` is byte-identical between the v17 and v18 lines while the per-surface docs went 5 → 9.
+  Its content is ordered **boundaries-first** (how to choose, then the three contrast pairs, then the
+  eight surfaces) because the failure to prevent is not "cannot describe a screen" but "confidently
+  describes the wrong one of eight similarly-named screens". `EditorSurface.NotThis` is load-bearing:
+  a test asserts every surface names *another* surface as the alternative. Keep it that way — do not let
+  it decay into eight blurbs.
+- **The model-visible type list is guarded.** `ToolSchemaTerminologyTests.ModelVisibleTypes_ListIsComplete`
+  reflects over the models namespace and fails if a public type is neither terminology-checked nor
+  explicitly excluded with a reason. Adding a returned type therefore forces a decision. This was added
+  after the list had quietly fallen behind.
+
 - **Namespace collision with `Umbraco.Cms`**: the project namespace is
   `Umbraco.Community.AdvancedPermissions.AI`, so the compiler sees `Umbraco` as a parent namespace.
   Keep all `Umbraco.Cms.*` access in `using` directives (or use `global::Umbraco.Cms...`), never
   inline fully-qualified inside a class declared in this namespace.
-- **Versioning**: MinVer, `v`-prefixed tags (`v17.x.x`). Cutting a release = pushing a tag;
+- **Versioning**: MinVer, `v`-prefixed tags (`v18.x.x` on `main`, `v17.x.x` on `v17/main`). Cutting a release = pushing a tag;
   `publish.yml` does the rest. Ask before tagging/pushing (maintainer preference; no auto-commit).
-- **Reference source**: Umbraco v17 backoffice at `C:\GitHub\UmbracoVersions\v17\src\Umbraco.Web.UI.Client`.
-  Do not read `node_modules` — use the reference source.
+- **Reference source**: there is currently **no** local Umbraco backoffice clone on this machine — the
+  `C:\GitHub\UmbracoVersions\...` path this file used to name does not exist. For backoffice internals,
+  read the `Umbraco.Cms.Core` XML docs in the NuGet cache
+  (`~/.nuget/packages/umbraco.cms.core/<ver>/lib/net10.0/Umbraco.Core.xml`) — that is how the
+  `IEntityService` overloads used by `ElementTreeResolver` were confirmed. Never read `node_modules`.
 - **Definitions live in a tool; only style lives in the prompt.** `uap_explain_concepts`
   (`Tools/ExplainConceptsTool.cs`, no args, no I/O) returns the conceptual reference — model, precedence,
   scopes, Priority Override, Insert Options, backoffice navigation — so its cost is paid only when asked.

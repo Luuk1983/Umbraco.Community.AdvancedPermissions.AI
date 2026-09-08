@@ -48,6 +48,12 @@ public sealed class ExplainAccessToolTests
     /// <summary>The mocked repository backing the REAL remediation service used by the tool.</summary>
     private readonly IAdvancedPermissionRepository _repository = Substitute.For<IAdvancedPermissionRepository>();
 
+    /// <summary>
+    /// The mocked Library element repository, required by the remediator's constructor. This tool serves
+    /// the content tree, so it stays unconfigured — the content path must never read it.
+    /// </summary>
+    private readonly IElementPermissionRepository _elementRepository = Substitute.For<IElementPermissionRepository>();
+
     /// <summary>The mocked Umbraco user service used to resolve a user's groups for the remediation role set.</summary>
     private readonly IUserService _userService = Substitute.For<IUserService>();
 
@@ -68,7 +74,7 @@ public sealed class ExplainAccessToolTests
     /// this so the suggest-fix path is exercised end-to-end through genuine re-resolution.
     /// </summary>
     private IPermissionRemediationService Remediation =>
-        new PermissionRemediator(new Umbraco.Community.AdvancedPermissions.Core.Services.PermissionResolver(), _repository);
+        new PermissionRemediator(new Umbraco.Community.AdvancedPermissions.Core.Services.PermissionResolver(), _repository, _elementRepository);
 
     /// <summary>Builds the tool under test over the current mocks.</summary>
     /// <returns>A fresh tool instance.</returns>
@@ -189,7 +195,7 @@ public sealed class ExplainAccessToolTests
 
     /// <summary>
     /// Subject=User with no verb returns a friendly <see cref="AccessExplanation"/> over all verbs and
-    /// resolves via <see cref="IAdvancedPermissionService.ResolveAllAsync"/>.
+    /// resolves via <see cref="INodePermissionService.ResolveAllAsync"/>.
     /// </summary>
     [Fact]
     public async Task User_NoVerb_ReturnsFriendlyExplanation()
@@ -224,7 +230,7 @@ public sealed class ExplainAccessToolTests
 
     /// <summary>
     /// Subject=User with a verb returns a single friendly <see cref="AccessVerdict"/> and resolves via
-    /// <see cref="IAdvancedPermissionService.ResolveAsync"/>.
+    /// <see cref="INodePermissionService.ResolveAsync"/>.
     /// </summary>
     [Fact]
     public async Task User_WithVerb_ReturnsFriendlyVerdict()
@@ -317,7 +323,7 @@ public sealed class ExplainAccessToolTests
     }
 
     /// <summary>
-    /// Subject=Role with a verb resolves via <see cref="IAdvancedPermissionService.ResolveForRoleAsync"/>
+    /// Subject=Role with a verb resolves via <see cref="INodePermissionService.ResolveForRoleAsync"/>
     /// with a single-element verb set and returns a single friendly verdict.
     /// </summary>
     [Fact]

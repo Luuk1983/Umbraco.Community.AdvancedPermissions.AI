@@ -60,6 +60,19 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
     private const string DocumentEntityType = "document";
 
     /// <summary>
+    /// The entity-type values Umbraco uses for the Library's two node kinds, taken from the base
+    /// package's own condition classes (<c>ELEMENT_ENTITY_TYPE</c> / <c>ELEMENT_FOLDER_ENTITY_TYPE</c>).
+    /// The Library half of the grounding is appended when the focused entity matches either.
+    /// </summary>
+    /// <remarks>
+    /// These are read from <see cref="Constants.ContextKeys.EntityType"/> — NOT
+    /// <c>ContextKeys.ElementType</c>, which is a different thing entirely: that key carries a
+    /// <i>block-editor</i> element type and has nothing to do with the Library. The names are close
+    /// enough to invite the mistake, so the distinction is asserted by a test.
+    /// </remarks>
+    private static readonly string[] LibraryEntityTypes = ["element", "element-folder"];
+
+    /// <summary>
     /// The permanent half of the grounding, contributed on <b>every</b> conversation. It carries only what
     /// cannot be looked up on demand: the terminology and readability rules that govern how every sentence
     /// is written, the read-only stance, and a pointer at <c>uap_explain_concepts</c> for the definitions.
@@ -73,13 +86,19 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
     /// answer, including ones that paraphrase <c>uap_explain_access</c> without touching a concept.
     /// </remarks>
     private const string ConceptsGrounding =
-        "This Umbraco site uses the Advanced Permissions package: access to content is governed by explicit " +
+        "This Umbraco site uses the Advanced Permissions package: access is governed by explicit " +
         "Allow/Deny entries per user group, with scopes, tree inheritance and an optional Priority Override " +
-        "flag. Its rules differ from Umbraco's built-in permissions. " +
+        "flag. Its rules differ from Umbraco's built-in permissions. It governs TWO separate trees with the " +
+        "same machinery — the content tree and the Library (reusable items and folders outside the content " +
+        "tree) — each with its own editors, stored and resolved independently, so a permission in one says " +
+        "nothing about the other. " +
         "For ANY question about how the permission system works — precedence, inheritance, scopes, Priority " +
         "Override, unset permissions, Insert Options, or how to change a permission in the backoffice — call " +
         "uap_explain_concepts and answer only from what it returns, never from your own knowledge, and do not " +
         "assume you already know. " +
+        "For ANY question about WHERE to go or WHICH screen to use — there are eight editors and viewers " +
+        "whose names all combine 'permissions', 'access', 'editor' and 'viewer' — call uap_explain_editors " +
+        "rather than guessing from a name or describing a menu path from memory. " +
         "Terminology — talk like an editor, not the database. Never use 'Allow' or 'Deny' as bare nouns: say " +
         "'a Deny entry' / 'an Allow entry', or better use the verb ('deleting is denied', 'Editors are allowed " +
         "to publish'). An entry's state is Allow or Deny, so a blocking entry is 'a Deny entry' — never 'a Deny " +
@@ -87,7 +106,10 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
         "controlled: always say 'the Delete permission', never the bare verb and never 'the Delete action'. " +
         "A stored record is an 'entry' — never a 'rule' — because that is the word the Permissions Editor " +
         "and its help use, so 'rule' sends the reader looking for something that is not there. " +
-        "Call the groups 'user groups', never 'roles'. Name the node when you know it, and always state " +
+        "Call the groups 'user groups', never 'roles'. In the Library, a node is an 'item' or a 'folder' " +
+        "(the editor's own column header is 'Library Item'), and the create filter there controls 'element " +
+        "types' — never call an element type a document type, or vice versa. " +
+        "Name the node when you know it, and always state " +
         "an entry's scope. Lead with the outcome ('you can't delete this page, because…'), then the reason, " +
         "and keep it concise. " +
         "Readability: answer in short, plain sentences an editor can act on. Do NOT reproduce a tool's fields " +
@@ -130,6 +152,32 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
         "When asked why an entry exists, say you cannot tell and offer to run uap_audit_permissions to check " +
         "whether it is part of a deliberate, site-wide pattern.";
 
+    /// <summary>
+    /// The Library half of the grounding, appended to <see cref="ConceptsGrounding"/> only when the focused
+    /// entity is a Library item or folder. Mirrors <see cref="DocumentGrounding"/> but points at the
+    /// Library tools, and adds the one thing the content tree has no equivalent for: some permissions do
+    /// not apply to a given kind of node at all.
+    /// </summary>
+    private const string LibraryGrounding =
+        " You are focused on a LIBRARY item or folder, so use uap_explain_library_access (NOT " +
+        "uap_explain_access, which covers the content tree only — the two are stored separately, so an " +
+        "answer from the wrong one is about the wrong thing). " +
+        "If a user cannot perform an action here, a Deny entry is a likely cause — check with " +
+        "uap_explain_library_access before concluding the cause is structural. " +
+        "Some permissions are reported 'Not applicable' rather than allowed or denied, because they have no " +
+        "meaning for that kind of node: Create on a single item, and Publish/Unpublish/Duplicate/Rollback on " +
+        "a folder (those apply to the items inside it). Relay that as not applicable — never as denied, and " +
+        "never send someone looking for an entry that causes it, because there is none. " +
+        "When you recommend a change or explain how to fix a denial, first call uap_explain_library_access " +
+        "with suggestFix=true and present ONLY the confirmed changes it returns; never hand-roll or guess a " +
+        "fix, and remember suggestFix describes the entries a human must add — it does not apply them. When a " +
+        "suggested change carries a GrantedBy phrase, always include it: removing a Deny entry only works " +
+        "because something else already allows the permission. When a change carries a Caution, always relay " +
+        "it and never present that option as an equal-footing alternative — removing the Deny entry is the " +
+        "preferred fix, and a Priority Override is a last resort. " +
+        "For which element types may be created in the Library, use aspect=element-type-create and pass NO " +
+        "node: that decision is section-wide, and element types are creatable by default.";
+
     /// <inheritdoc />
     public void Contribute(AIRuntimeContext context)
     {
@@ -138,12 +186,24 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
             // The concepts half goes on every conversation; the document half is additive. A document
             // conversation is therefore a strict superset, never a different message. The entity-type value
             // is set by the built-in entity contributor before this one runs.
+            // EntityType, never ElementType: the latter means a block-editor element type, which has
+            // nothing to do with the Library. See LibraryEntityTypes.
             var entityType = context.GetValue<string>(Constants.ContextKeys.EntityType);
-            var isDocument = string.Equals(entityType, DocumentEntityType, StringComparison.Ordinal);
 
-            // Append-only (b): never write Variables/Data. Contributed as ONE part either way.
-            context.SystemMessageParts.Add(
-                isDocument ? ConceptsGrounding + DocumentGrounding : ConceptsGrounding);
+            var domainHalf = string.Empty;
+            if (string.Equals(entityType, DocumentEntityType, StringComparison.Ordinal))
+            {
+                domainHalf = DocumentGrounding;
+            }
+            else if (entityType is not null && LibraryEntityTypes.Contains(entityType, StringComparer.Ordinal))
+            {
+                domainHalf = LibraryGrounding;
+            }
+
+            // Append-only (b): never write Variables/Data. Contributed as ONE part in every case, and
+            // every case is a strict superset of the concepts half — a conversation never loses grounding
+            // to the split.
+            context.SystemMessageParts.Add(ConceptsGrounding + domainHalf);
         }
         catch
         {

@@ -19,6 +19,12 @@ public sealed class AdvancedPermissionsAiComposer : IComposer
     {
         builder.Services.AddSingleton<IPermissionAuditAnalyzer, PermissionAuditAnalyzer>();
         builder.Services.AddSingleton<IContentPathResolver, ContentPathResolver>();
+        builder.Services.AddSingleton<IElementTreeResolver, ElementTreeResolver>();
+        builder.Services.AddSingleton<ILibraryElementTypeProvider, LibraryElementTypeProvider>();
+
+        // Registered without a domain, so the resolved instance is bound to the content tree. The
+        // Library tools rebind it themselves with IPermissionPresenter.For(PermissionDomain.Library) —
+        // which is why one registration serves both trees.
         builder.Services.AddSingleton<IPermissionPresenter, PermissionPresenter>();
         builder.Services.AddSingleton<IPermissionRemediationService, PermissionRemediator>();
 

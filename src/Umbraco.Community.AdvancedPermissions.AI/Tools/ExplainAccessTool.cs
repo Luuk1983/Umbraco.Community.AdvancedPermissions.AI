@@ -390,6 +390,9 @@ public sealed class ExplainAccessTool(
             roleAliases,
             args.Verb,
             PermissionState.Deny,
+            // Stated explicitly rather than left to the default: this tool serves the content tree only,
+            // and the Library sibling passes its own domain at the mirror-image call site.
+            PermissionDomain.Content,
             cancellationToken);
 
         if (options.Count == 0)
@@ -578,14 +581,14 @@ public sealed class ExplainAccessTool(
 
         if (args.ContentTypeKey is { } focused)
         {
-            var permission = await docTypePermissions.ResolveCreateForRolesAsync(roleAliases, path, focused, cancellationToken);
+            var permission = await docTypePermissions.ResolveCreateForRolesAsync(roleAliases, path, focused, AdvancedPermissionsConstants.VerbCreateOfType, cancellationToken);
             return await presenter.ToTypeCreateVerdictAsync(focused, permission, allowedChildren.Contains(focused), cancellationToken);
         }
 
         var verdicts = new List<TypeCreateVerdict>();
         foreach (var candidate in GetCandidateContentTypes())
         {
-            var permission = await docTypePermissions.ResolveCreateForRolesAsync(roleAliases, path, candidate.Key, cancellationToken);
+            var permission = await docTypePermissions.ResolveCreateForRolesAsync(roleAliases, path, candidate.Key, AdvancedPermissionsConstants.VerbCreateOfType, cancellationToken);
             verdicts.Add(await presenter.ToTypeCreateVerdictAsync(candidate.Key, permission, allowedChildren.Contains(candidate.Key), cancellationToken));
         }
 
@@ -642,7 +645,7 @@ public sealed class ExplainAccessTool(
                     ? [AdvancedPermissionsConstants.EveryoneRoleAlias]
                     : [alias, AdvancedPermissionsConstants.EveryoneRoleAlias];
 
-                var permission = await docTypePermissions.ResolveCreateForRolesAsync(roles, path, contentTypeKey, cancellationToken);
+                var permission = await docTypePermissions.ResolveCreateForRolesAsync(roles, path, contentTypeKey, AdvancedPermissionsConstants.VerbCreateOfType, cancellationToken);
                 (permission.IsAllowed ? allowed : denied).Add(displayNames[alias]);
             }
 

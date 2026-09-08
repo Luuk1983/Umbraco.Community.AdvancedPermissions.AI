@@ -252,6 +252,19 @@ public sealed class AdvancedPermissionsGroundingContributorTests
         // reintroduce the per-conversation cost the tool exists to avoid.
         Assert.DoesNotContain("flag on a single entry", grounding, StringComparison.Ordinal);
         Assert.DoesNotContain("creatable by default", grounding, StringComparison.Ordinal);
+
+        // The same rule for the v18 editors reference: the always-on half must POINT at
+        // uap_explain_editors, never carry the tour itself. Its content is prose-heavy — eight surface
+        // descriptions and a navigation walkthrough — so leaking it back here would cost far more per
+        // conversation than the concepts definitions ever did.
+        Assert.Contains("uap_explain_editors", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("Permissions Editor to change it", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("Three questions pick the right screen", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("filter, not a grant", grounding, StringComparison.Ordinal);
+
+        // And the menu path itself must not be restated: it changed in v18, and a stale path in the
+        // always-on prompt is exactly the failure mode the pointer exists to prevent.
+        Assert.DoesNotContain("Users section →", grounding, StringComparison.Ordinal);
     }
 
     /// <summary>

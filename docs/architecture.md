@@ -19,7 +19,7 @@ flowchart TB
     LLM[("External LLM (OpenAI / Anthropic / …)")]
 
     subgraph AIPkg["This package: Umbraco.Community.AdvancedPermissions.AI"]
-        Tools["3 AITool classes: uap_explain_access (subject = current-user / user / user-group / all-user-groups; aspect = node / type-create), uap_audit_permissions, uap_explain_concepts"]
+        Tools["5 AITool classes: uap_explain_access (content; subject = current-user / user / user-group / all-user-groups; aspect = node / type-create), uap_explain_library_access (Library; aspect = node / element-type-create), uap_audit_permissions (domain = content / library / library-element-types), uap_explain_concepts, uap_explain_editors"]
         ReadScope["AIToolScope: advanced-permissions:read"]
         Path["ContentPathResolver"]
         Audit["PermissionAuditAnalyzer"]
@@ -55,7 +55,7 @@ flowchart TB
 ```
 
 - Umbraco AI, at the top, provides the copilot chat, the agent runtime and the LLM connection.
-- This package, in the middle, adds three auto-discovered `[AITool]` classes, a read-only tool scope,
+- This package, in the middle, adds five auto-discovered `[AITool]` classes, a read-only tool scope,
   helper services (`ContentPathResolver`, `PermissionAuditAnalyzer`, `PermissionPresenter`) and a
   runtime-context contributor that grounds the copilot.
 - The base permission package, at the bottom, is unchanged. The tools simply call its
@@ -94,12 +94,21 @@ deterministic result the resolver computed.
 
 `AdvancedPermissionsGroundingContributor` contributes to the copilot's system prompt in two halves:
 
-- Always on (roughly 635 tokens): editor-facing terminology and readability rules, the read-only
-  stance, and a pointer to `uap_explain_concepts`. It carries no definitions, only what a tool cannot
+- Always on (roughly 700 tokens): editor-facing terminology and readability rules, the read-only
+  stance, that the package governs two separate trees, and pointers to `uap_explain_concepts` and
+  `uap_explain_editors`. It carries no definitions, only what a tool cannot
   deliver, because the style rules have to govern every sentence the copilot writes, including ones
   that paraphrase another tool's output.
 - Document conversations only (roughly 300 tokens, appended): tool nudges that presume a focused node,
   the `suggestFix` rules, and the requirement to relay the `GrantedBy` and `Caution` fields.
+
+- Library conversations only (roughly 320 tokens, appended, gated on the `element` / `element-folder`
+  entity types): the same discipline pointed at `uap_explain_library_access`, plus the rule that some
+  Library permissions are "Not applicable" rather than denied.
+
+The two domain halves are mutually exclusive — they point at different tools for the same question — and
+every combination is a strict superset of the always-on half, so no conversation loses grounding to the
+split.
 
 The definitions themselves live in `uap_explain_concepts`, so their cost is paid only when a conceptual
 question is actually asked. The pointer in the always-on half is what makes that safe. The failure it

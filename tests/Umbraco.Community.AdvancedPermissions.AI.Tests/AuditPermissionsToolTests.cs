@@ -28,8 +28,37 @@ public sealed class AuditPermissionsToolTests
     /// <summary>The mocked repository the tool loads role-wide entries from.</summary>
     private readonly IAdvancedPermissionRepository _repository = Substitute.For<IAdvancedPermissionRepository>();
 
+    /// <summary>
+    /// The mocked Library element repository. Every test here audits the content domain, so it stays
+    /// unconfigured on purpose — the content path must never read it. Cross-domain behaviour is covered
+    /// by <see cref="AuditPermissionsDomainTests"/>.
+    /// </summary>
+    private readonly IElementPermissionRepository _elementRepository = Substitute.For<IElementPermissionRepository>();
+
+    /// <summary>The mocked create-filter repository, used only by the element-type domain.</summary>
+    private readonly IDocTypePermissionRepository _docTypeRepository = Substitute.For<IDocTypePermissionRepository>();
+
+    /// <summary>The mocked Library tree reader, used only by the Library domain.</summary>
+    private readonly IElementTreeResolver _treeResolver = Substitute.For<IElementTreeResolver>();
+
     /// <summary>The mocked analyzer the tool delegates the audit to.</summary>
     private readonly IPermissionAuditAnalyzer _analyzer = Substitute.For<IPermissionAuditAnalyzer>();
+
+    /// <summary>
+    /// Builds the tool under test over the current mocks, with a REAL presenter so the friendly
+    /// projection is exercised end-to-end.
+    /// </summary>
+    /// <returns>A fresh tool instance.</returns>
+    private AuditPermissionsTool CreateTool() =>
+        new(
+            _repository,
+            _elementRepository,
+            _docTypeRepository,
+            _analyzer,
+            new PermissionPresenter(_userGroupService, _entityService, _contentTypeService),
+            _entityService,
+            _treeResolver,
+            _userGroupService);
 
     /// <summary>The mocked user group service backing the real presenter.</summary>
     private readonly IUserGroupService _userGroupService = Substitute.For<IUserGroupService>();
@@ -102,8 +131,7 @@ public sealed class AuditPermissionsToolTests
         _repository.GetByRoleAsync(roleAlias, Arg.Any<CancellationToken>()).Returns(entries);
         _analyzer.Analyze(entries).Returns(rawReport);
 
-        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = CreateTool();
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.UserGroup, roleAlias), CancellationToken.None);
 
@@ -138,7 +166,7 @@ public sealed class AuditPermissionsToolTests
 
     /// <summary>
     /// Subtree scope gathers the node plus its descendant document keys via the entity service, loads
-    /// their stored entries with the bulk <see cref="IAdvancedPermissionRepository.GetByNodesAsync"/> query,
+    /// their stored entries with the bulk <see cref="INodePermissionRepository.GetByNodesAsync"/> query,
     /// and projects the analyzer's report through the presenter.
     /// </summary>
     [Fact]
@@ -186,8 +214,7 @@ public sealed class AuditPermissionsToolTests
             EntriesAnalyzed: 1);
         _analyzer.Analyze(entries).Returns(rawReport);
 
-        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = CreateTool();
 
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.Subtree, NodeKey: rootKey), CancellationToken.None);
@@ -248,8 +275,7 @@ public sealed class AuditPermissionsToolTests
             EntriesAnalyzed: 1);
         _analyzer.Analyze(entries).Returns(rawReport);
 
-        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = CreateTool();
 
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.All), CancellationToken.None);
@@ -290,8 +316,7 @@ public sealed class AuditPermissionsToolTests
             EntriesAnalyzed: 1);
         _analyzer.Analyze(entries).Returns(rawReport);
 
-        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = CreateTool();
 
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.UserGroup, roleAlias, SeverityMin: AuditSeverity.Risk),
@@ -307,8 +332,7 @@ public sealed class AuditPermissionsToolTests
     [Fact]
     public async Task Audit_Role_MissingRoleAlias_ReturnsError()
     {
-        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = CreateTool();
 
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.UserGroup), CancellationToken.None);
@@ -321,8 +345,7 @@ public sealed class AuditPermissionsToolTests
     [Fact]
     public async Task Audit_Subtree_MissingNodeKey_ReturnsError()
     {
-        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = CreateTool();
 
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.Subtree), CancellationToken.None);
@@ -351,7 +374,7 @@ public sealed class AuditPermissionsToolTests
     public void Description_NamesOnlyTheChecksTheAnalyzerRuns(string expectedPhrase)
     {
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService).Description;
+        var description = CreateTool().Description;
 
         Assert.Contains(expectedPhrase, description, StringComparison.OrdinalIgnoreCase);
     }
@@ -364,7 +387,7 @@ public sealed class AuditPermissionsToolTests
     public void Description_DoesNotClaimAGeneralDescendantsScopeCheck()
     {
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService).Description;
+        var description = CreateTool().Description;
 
         Assert.DoesNotContain("risky 'this node and descendants'", description, StringComparison.OrdinalIgnoreCase);
     }

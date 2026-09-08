@@ -41,21 +41,40 @@ public sealed class ToolDescriptionTerminologyTests
         Substitute.For<IPermissionRemediationService>(),
         Substitute.For<IUserService>());
 
+    /// <summary>Builds the Library explain tool with throwaway substitutes, purely to read its description.</summary>
+    /// <returns>The tool.</returns>
+    private static ExplainLibraryAccessTool NewExplainLibraryAccess() => new(
+        Substitute.For<IElementNodePermissionService>(),
+        Substitute.For<IElementTreeResolver>(),
+        Substitute.For<IPermissionPresenter>(),
+        Substitute.For<IUserGroupService>(),
+        Substitute.For<IBackOfficeSecurityAccessor>(),
+        Substitute.For<IDocTypePermissionService>(),
+        Substitute.For<ILibraryElementTypeProvider>(),
+        Substitute.For<IPermissionRemediationService>(),
+        Substitute.For<IUserService>());
+
     /// <summary>Builds the audit tool with throwaway substitutes, purely to read its description.</summary>
     /// <returns>The tool.</returns>
     private static AuditPermissionsTool NewAudit() => new(
         Substitute.For<IAdvancedPermissionRepository>(),
+        Substitute.For<IElementPermissionRepository>(),
+        Substitute.For<IDocTypePermissionRepository>(),
         Substitute.For<IPermissionAuditAnalyzer>(),
         Substitute.For<IPermissionPresenter>(),
-        Substitute.For<IEntityService>());
+        Substitute.For<IEntityService>(),
+        Substitute.For<IElementTreeResolver>(),
+        Substitute.For<IUserGroupService>());
 
     /// <summary>Every tool description the model sees, keyed by tool name.</summary>
     /// <returns>Tool name and description pairs.</returns>
     public static TheoryData<string, string> AllDescriptions() => new()
     {
         { "uap_explain_access", NewExplainAccess().Description },
+        { "uap_explain_library_access", NewExplainLibraryAccess().Description },
         { "uap_audit_permissions", NewAudit().Description },
         { "uap_explain_concepts", new ExplainConceptsTool().Description },
+        { "uap_explain_editors", new ExplainEditorsTool().Description },
     };
 
     /// <summary>

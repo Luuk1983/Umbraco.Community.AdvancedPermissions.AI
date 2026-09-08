@@ -27,11 +27,12 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>package_logo_128x128.png</PackageIcon>
 
-    <!-- Versioning: MinVer derives version from git tags (e.g. v17.0.0). Standalone repo, so a
-         plain "v" prefix (no "ai-v" disambiguation needed). -->
+    <!-- Versioning: MinVer derives version from git tags (e.g. v18.0.0). Standalone repo, so a
+         plain "v" prefix (no "ai-v" disambiguation needed). The v17 line is maintained on the
+         v17/main branch, which keeps 17.0 here. -->
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <MinVerAutoIncrement>minor</MinVerAutoIncrement>
-    <MinVerMinimumMajorMinor>17.0</MinVerMinimumMajorMinor>
+    <MinVerMinimumMajorMinor>18.0</MinVerMinimumMajorMinor>
 
     <!-- Symbols package + SourceLink -->
     <IncludeSymbols>true</IncludeSymbols>

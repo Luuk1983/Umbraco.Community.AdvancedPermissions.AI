@@ -45,6 +45,14 @@ public interface IPermissionRemediationService
     /// The resolver's default state for this aspect — <see cref="PermissionState.Deny"/> for node-level
     /// permissions.
     /// </param>
+    /// <param name="domain">
+    /// Which permission tree to read the current entries from. Only the data source varies: the
+    /// candidate mutations and the confirming re-resolution are identical for both trees, because the
+    /// resolver is pure and indifferent to which table an entry came from. Reading the wrong tree would
+    /// simulate against the wrong entry set and produce a "confirmed" fix that changes nothing, so the
+    /// caller states its domain explicitly rather than having it inferred from the verb. Defaults to
+    /// <see cref="PermissionDomain.Content"/>, preserving the pre-v18 behaviour for existing callers.
+    /// </param>
     /// <param name="cancellationToken">Token to support cancellation.</param>
     /// <returns>
     /// The confirmed remediation options (possibly empty when the baseline is already Allowed or no
@@ -56,5 +64,6 @@ public interface IPermissionRemediationService
         IReadOnlyList<string> roleAliases,
         string verb,
         PermissionState defaultState,
+        PermissionDomain domain = PermissionDomain.Content,
         CancellationToken cancellationToken = default);
 }

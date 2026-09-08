@@ -7,31 +7,41 @@ owns the phase-by-phase workflow; this file records what only this package knows
 
 - **Personal GitHub package** (owned by Luuk Peters), **not** a Proud Nerds package.
 - Published from **GitHub Actions** (`publish.yml`), versioned by **MinVer** from a `v`-prefixed git
-  tag (`MinVerTagPrefix=v`, auto-increment minor, minimum `17.0`). Cutting the release = pushing the tag.
+  tag (`MinVerTagPrefix=v`, auto-increment minor, minimum `18.0`). Cutting the release = pushing the tag.
 - **Cut the release manually in GitHub** by default, for control. Ask before anything tags/pushes.
 - **Post-release: N/A.** Do **not** invoke `nuget-post-release` (that is for Proud Nerds packages on
   Azure DevOps). The next version comes from the next tag.
 - **Independent cadence** from the base package: this add-on ships its own `v*` tags; its MAJOR
-  tracks the shared CMS major (17.x).
+  tracks the shared CMS major (18.x on `main`). The v17 line is maintained on `v17/main` and still
+  publishes from there — `ci.yml` runs on PRs to `main` **and** `*/main`, and `publish.yml` fires on
+  any `v*.*.*` tag regardless of branch.
 
 ## Dependency hygiene
 
 Central versions live in `Directory.Packages.props`:
 
-- `Umbraco.Community.AdvancedPermissions` is pinned `[17.2.0,18.0.0)` — keep the floor at a released
+- `Umbraco.Community.AdvancedPermissions` is pinned `[18.1.0,19.0.0)` — keep the floor at a released
   stable base version and keep the upper bound a **plain stable version, never `18.0.0-0`**: a `-0`
   bound packs fine locally but **nuget.org rejects it at push time**
-  (`400 BadRequest: invalid Version: '18.0.0-0'`), which fails the release tag, not any test. The
-  published base package's own nuspec uses plain `[17.3.0, 18.0.0)` bounds — that form is proven.
-- `Umbraco.AI.Core` (the package's only other dependency) is pinned `[17.0.0,18.0.0)` — same plain
+  (`400 BadRequest: invalid Version: '19.0.0-0'`), which fails the release tag, not any test. The
+  published base package's own nuspec uses plain `[18.0.0, 19.0.0)` bounds — that form is proven.
+  The **18.1.0** floor is not arbitrary: the Library permission APIs this package reads
+  (`IElementNodePermissionService`, `ElementVerbs`, `VerbElementCreateOfType`) start there.
+- `Umbraco.AI.Core` (the package's only other dependency) is pinned `[18.0.0,19.0.0)` — same plain
   upper bound; Umbraco.AI majors track the CMS major. The `Umbraco.AI.*` TestSite packages are
-  pinned to the 17.x line but never flow into the nupkg.
+  pinned to the 18.x line but never flow into the nupkg.
+- The TestSite's `Microsoft.EntityFrameworkCore.Sqlite` pin must **exactly** match what the pinned
+  `Umbraco.Cms` references. A lower patch fails restore under `TreatWarningsAsErrors` (NU1605 package
+  downgrade); a higher one triggers an MSB3277 assembly-version conflict. Bump the two together.
 - The package declares **no** direct `Umbraco.Cms.*` — its floor is implicit and **computed** from the
-  dependencies' nuspecs. Today that is **17.4.0**: `Umbraco.AI.Core` 17.0.0 requires
-  `Umbraco.Cms.* [17.4.0, 17.999.999)` and the base package requires `[17.3.0, 18.0.0)`, so the higher
-  floor wins. Re-derive it each release rather than repeating it (it was documented as 17.4.2 for a
+  dependencies' nuspecs. Today that is **18.0.0**: `Umbraco.AI.Core` 18.3.1 requires
+  `Umbraco.Cms.* [18.0.0, 18.999.999)` and the base package requires `[18.0.0, 19.0.0)`, so they agree.
+  Re-derive it each release rather than repeating it (on the v17 line it was documented as 17.4.2 for a
   while, which was wrong), and keep the README's Requirements section in step. The only explicit
   `Umbraco.Cms` pin (TestSite) must stay at or above that floor.
+- **`Umbraco.AI.Core`'s upper bound is a hard install ceiling**: its `18.999.999` cap on `Umbraco.Cms.*`
+  means this package cannot install on Umbraco 19 no matter what the base-package bound allows. The
+  README says so explicitly; keep that statement accurate when Umbraco.AI moves.
 
 ## Release notes
 
@@ -48,16 +58,17 @@ For a first stable release, curate the body by hand.
   no package to attach a policy to — it must be created **in advance** using nuget.org's
   package-ID-**pattern** form, before the first push. Getting this wrong fails the release tag.
 - Create a `production` GitHub environment and the `NUGET_USER` secret (both exist).
-- Optional but cheap insurance: push a prerelease tag first (e.g. `v17.0.0-rc.1`) to prove the whole
+- Optional but cheap insurance: push a prerelease tag first (e.g. `v18.0.0-rc.1`) to prove the whole
   pipeline — trusted publishing, environment gate, push, GitHub release — before the real
-  `v17.0.0`. Remember the stable release notes are auto-generated **since the previous tag**, so
+  `v18.0.0`. Remember the stable release notes are auto-generated **since the previous tag**, so
   after an rc the stable body must be hand-curated anyway (already the plan below).
 
 ## Documentation to keep in sync
 
 - `README.md` — the copilot tools and example prompts; keep in step with the actual `[AITool]`s
-  (currently **three**: `uap_explain_access`, `uap_audit_permissions`, `uap_explain_concepts`).
-  Prerequisites must state the correct Umbraco floor (**17.4.2+**) and `Umbraco.AI` version. The
+  (currently **five**: `uap_explain_access`, `uap_explain_library_access`, `uap_audit_permissions`,
+  `uap_explain_concepts`, `uap_explain_editors`), and with the audit's four `domain` values.
+  Prerequisites must state the correct Umbraco floor (**18.0.0+**) and `Umbraco.AI` version. The
   **Setting up Umbraco AI** section is the most load-bearing part of the README — the tools are
   auto-discovered but do nothing until the chat agent's Governance allows the
   `advanced-permissions:read` scope. Re-check that flow against the AI section's UI each release.
@@ -67,7 +78,11 @@ For a first stable release, curate the body by hand.
   count and the grounding token figures when either changes.
 - **Backoffice localization** ships as `wwwroot/App_Plugins/.../lang/*.js` (en + nl). **One
   label/description pair per tool** — a new `[AITool]` needs a new pair in *both* files or its raw
-  key shows in Umbraco AI's "Select Tools" dialog. Nothing compiles these; nothing fails without them.
+  key shows in Umbraco AI's "Select Tools" dialog. Nothing compiles these and nothing fails at run
+  time, so `ToolLocalizationTests` now enforces it: it discovers the tools by reflection and the
+  locales by directory listing, and fails when a pair is missing or the two locales disagree. That
+  turns the old silent manual step into a build failure — but keep writing real Dutch, since the test
+  checks that a key exists, not that it says anything sensible.
 - `CONTRIBUTING.md` — house rules (test-first, read-only, terminology, definitions-live-in-the-tool).
 - `umbraco-marketplace.json` — review Description / tags / URLs each release; nothing compiles it.
 
