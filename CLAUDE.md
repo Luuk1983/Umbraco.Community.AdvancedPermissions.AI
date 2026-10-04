@@ -139,9 +139,11 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
   inline fully-qualified inside a class declared in this namespace.
 - **Versioning**: MinVer, `v`-prefixed tags (`v18.x.x` on `main`, `v17.x.x` on `v17/main`). Cutting a release = pushing a tag;
   `publish.yml` does the rest. Ask before tagging/pushing (maintainer preference; no auto-commit).
-- **Reference source**: there is currently **no** local Umbraco backoffice clone on this machine — the
-  `C:\GitHub\UmbracoVersions\...` path this file used to name does not exist. For backoffice internals,
-  read the `Umbraco.Cms.Core` XML docs in the NuGet cache
+- **Reference source**: the Umbraco backoffice clone is on the **D:** drive, not C: —
+  `D:\github\UmbracoVersions\v17\Umbraco-CMS\src\Umbraco.Web.UI.Client` (a v13 tree sits alongside it).
+  An earlier version of this file claimed no clone existed, because only `C:\GitHub` had been checked.
+  For backoffice *contracts* rather than UI source, the `Umbraco.Cms.Core` XML docs in the NuGet cache
+  are quicker and are versioned to what actually restores
   (`~/.nuget/packages/umbraco.cms.core/<ver>/lib/net10.0/Umbraco.Core.xml`) — that is how the
   `IEntityService` overloads used by `ElementTreeResolver` were confirmed. Never read `node_modules`.
 - **Definitions live in a tool; only style lives in the prompt.** `uap_explain_concepts`

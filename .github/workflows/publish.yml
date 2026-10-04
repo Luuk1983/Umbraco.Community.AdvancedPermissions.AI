@@ -18,22 +18,13 @@ jobs:
         with:
           fetch-depth: 0 # Full history needed for MinVer
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Restore dependencies
-        run: dotnet restore
-
-      - name: Build
-        run: dotnet build --configuration Release --no-restore
-
-      - name: Test
-        run: dotnet test --configuration Release --no-build --verbosity normal
-
-      - name: Pack
-        run: dotnet pack src/Umbraco.Community.AdvancedPermissions.AI/ --configuration Release --output ./artifacts
+      # The same composite action the pull request check runs, so what gets pushed is what was
+      # verified. It restores, builds, tests and packs the package project alone — deliberately not
+      # the solution, which also holds the TestSite and its full Umbraco instance: a problem there
+      # would fail this run after the tag is already public, for a reason unrelated to the package.
+      # The action's own checks on the produced .nupkg are the last point at which a bad artifact is
+      # still recoverable, because a published version cannot be replaced, only unlisted.
+      - uses: ./.github/actions/build-package
 
       - name: Login to NuGet (trusted publishing)
         id: nuget-login

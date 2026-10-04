@@ -6,6 +6,12 @@ owns the phase-by-phase workflow; this file records what only this package knows
 ## Release model
 
 - **Personal GitHub package** (owned by Luuk Peters), **not** a Proud Nerds package.
+- Both `ci.yml` and `publish.yml` build the package through one composite action,
+  `.github/actions/build-package`. Change what ships **there**, never in a workflow, or the pull
+  request check stops verifying what publishing does. It also checks the produced `.nupkg`: that it
+  carries `umbraco-package.json` and the `lang/*.js` files, and that its dependency bounds are plain
+  stable versions. The release path deliberately builds the package project alone, not the solution,
+  so a TestSite problem cannot fail a run after the tag is public.
 - Published from **GitHub Actions** (`publish.yml`), versioned by **MinVer** from a `v`-prefixed git
   tag (`MinVerTagPrefix=v`, auto-increment minor, minimum `18.0`). Cutting the release = pushing the tag.
 - **Cut the release manually in GitHub** by default, for control. Ask before anything tags/pushes.
@@ -23,7 +29,9 @@ Central versions live in `Directory.Packages.props`:
 - `Umbraco.Community.AdvancedPermissions` is pinned `[18.1.0,19.0.0)` — keep the floor at a released
   stable base version and keep the upper bound a **plain stable version, never `18.0.0-0`**: a `-0`
   bound packs fine locally but **nuget.org rejects it at push time**
-  (`400 BadRequest: invalid Version: '19.0.0-0'`), which fails the release tag, not any test. The
+  (`400 BadRequest: invalid Version: '19.0.0-0'`), which used to fail the release tag rather than any
+  test — the composite action's **Verify the package's dependency bounds** step now rejects any
+  prerelease marker in a bound on the pull request instead. The
   published base package's own nuspec uses plain `[18.0.0, 19.0.0)` bounds — that form is proven.
   The **18.1.0** floor is not arbitrary: the Library permission APIs this package reads
   (`IElementNodePermissionService`, `ElementVerbs`, `VerbElementCreateOfType`) start there.
