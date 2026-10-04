@@ -108,6 +108,50 @@ public enum AuditScope
     All,
 }
 
+/// <summary>
+/// Selects which stored permission configuration the <c>uap_audit_permissions</c> tool audits.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The audit takes a domain argument where the explain tools got a whole sibling tool, and the asymmetry
+/// is deliberate: the explain tools differ in their <i>arguments and reasoning</i>, whereas these paths
+/// differ mainly in <b>which store to read</b> — every one of them yields entries of the same shape, so
+/// a second tool would be a near-duplicate.
+/// </para>
+/// <para>
+/// The rules are <i>mostly</i> shared, with one real split. The two node-permission domains
+/// (<see cref="Content"/>, <see cref="Library"/>) are denied unless allowed, so a broad All Users
+/// <b>Allow</b> is the risk. The two create-filter domains (<see cref="DocumentTypes"/>,
+/// <see cref="LibraryElementTypes"/>) are allowed unless denied and can only ever narrow what Umbraco
+/// already offers, so a broad Allow there grants nothing and the risk is the mirror image: a broad All
+/// Users <b>Deny</b>, which hides a type from everyone. Applying one rule set to both would produce a
+/// false positive in one direction and miss the real risk in the other.
+/// </para>
+/// </remarks>
+public enum AuditDomain
+{
+    /// <summary>
+    /// The content tree's stored entries. The default, and the only configuration the package audited
+    /// before v18.
+    /// </summary>
+    Content,
+
+    /// <summary>The Library tree's stored entries — the permissions on library items and folders.</summary>
+    Library,
+
+    /// <summary>
+    /// The document-type create entries — the "Insert Options" deciding which document types each user
+    /// group may create under which content nodes. Per node, so every scope applies.
+    /// </summary>
+    DocumentTypes,
+
+    /// <summary>
+    /// The Library element-type create entries — which element types each user group may create in the
+    /// Library. Section-wide rather than per node, so <see cref="AuditScope.Subtree"/> does not apply.
+    /// </summary>
+    LibraryElementTypes,
+}
+
 /// <summary>Arguments for the audit-permissions tool.</summary>
 /// <param name="Scope">
 /// Which slice of the configuration to audit: a single user group (default), a node's subtree, or the
@@ -119,15 +163,21 @@ public enum AuditScope
 /// </param>
 /// <param name="NodeKey">The content node whose subtree (this node plus descendants) is audited. Required when <see cref="AuditScope.Subtree"/>.</param>
 /// <param name="SeverityMin">Optional minimum severity; when set, only findings at or above this severity are returned.</param>
+/// <param name="Domain">
+/// Which stored configuration to audit: the content tree (default), the Library tree, or the Library
+/// element-type create entries.
+/// </param>
 public sealed record AuditPermissionsArgs(
-    [property: Description("What to audit: 'user-group' (all entries for one user group across the site — the default, requires userGroupAlias), 'subtree' (everything stored on a node and its descendants, requires nodeKey), or 'all' (the whole stored configuration).")]
+    [property: Description("What to audit: 'user-group' (all entries for one user group — the default, requires userGroupAlias), 'subtree' (everything stored on a node and its descendants, requires nodeKey), or 'all' (the whole stored configuration).")]
     AuditScope Scope = AuditScope.UserGroup,
     [property: Description("The user group alias whose stored permission entries to audit, or '$everyone'. Required when scope is 'user-group'.")]
     string? UserGroupAlias = null,
-    [property: Description("The GUID key of the content node whose subtree (this node and all descendants) to audit. Required when scope is 'subtree'.")]
+    [property: Description("The GUID key of the node whose subtree (this node and all descendants) to audit. Required when scope is 'subtree'.")]
     Guid? NodeKey = null,
     [property: Description("Optional minimum severity filter: 'Info', 'Warning', or 'Risk'. When set, only findings at or above this severity are returned.")]
-    AuditSeverity? SeverityMin = null);
+    AuditSeverity? SeverityMin = null,
+    [property: Description("Which configuration to audit: 'content' (the content tree — the default), 'library' (the Library tree of items and folders), 'document-types' (the Insert Options deciding which document types each user group may create where), or 'library-element-types' (which element types each user group may create in the Library; section-wide, so scope 'subtree' is not valid with it).")]
+    AuditDomain Domain = AuditDomain.Content);
 
 /// <summary>
 /// Arguments for the explain-concepts tool. The tool returns the whole conceptual reference, so it takes
@@ -135,3 +185,11 @@ public sealed record AuditPermissionsArgs(
 /// its own (wrong) assumptions about the rest.
 /// </summary>
 public sealed record ExplainConceptsArgs();
+
+/// <summary>
+/// Arguments for the explain-editors tool. Like the concepts tool it returns the whole reference and so
+/// takes no arguments — and here the reason is sharper: the point of the reference is the boundaries
+/// <i>between</i> the eight surfaces, which a filter to one of them would remove exactly when it is
+/// needed.
+/// </summary>
+public sealed record ExplainEditorsArgs();

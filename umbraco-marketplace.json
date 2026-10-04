@@ -3,7 +3,7 @@
   "Title": "Advanced Permissions for Umbraco — AI Copilot Tools",
   "Category": "Developer Tools",
   "AlternateCategory": "Editor Tools",
-  "Description": "Optional AI companion for Advanced Permissions for Umbraco. It makes the Umbraco backoffice copilot permission-aware, so editors can ask in plain language who can do what, why an action is blocked, and what would fix it, plus audit a user group or a branch of the tree for risks and get the permission model itself explained. Every answer is computed by the package's own permission-resolution engine, including the reasoning behind it, so the copilot stops guessing. Strictly read-only. Requires Umbraco AI with a configured copilot chat.",
+  "Description": "Optional AI companion for Advanced Permissions for Umbraco. It makes the Umbraco backoffice copilot permission-aware, so editors can ask in plain language who can do what, why an action is blocked, and what would fix it, plus audit a user group or a branch of the tree for risks, and get the permission model and the editors themselves explained. It covers both the content tree and the Library. Every answer is computed by the package's own permission-resolution engine, including the reasoning behind it, so the copilot stops guessing. Strictly read-only. Requires Umbraco AI with a configured copilot chat.",
   "PackageType": "Package",
   "LicenseTypes": ["Free"],
   "AuthorDetails": {

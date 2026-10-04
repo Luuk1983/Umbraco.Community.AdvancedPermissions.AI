@@ -1,0 +1,104 @@
+name: Build the Advanced Permissions AI package
+description: >
+  Restores, builds, tests and packs the shipped package, then checks the artifact it actually
+  produced. The single definition of "what ships and how", shared by CI and by the release, so the
+  pull request check cannot drift away from what publishing does.
+
+inputs:
+  output:
+    description: Directory the .nupkg and .snupkg files are written to.
+    required: false
+    default: ./artifacts
+
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    # Per project, not by solution, and deliberately. The solution also holds the TestSite, which
+    # pulls a whole Umbraco instance plus the Umbraco.AI runtime and the starter kit — none of
+    # which contributes anything to the package. In a release, a problem there would fail the run
+    # after the tag is already public, for a reason unrelated to what is being shipped. CI builds
+    # the full solution in a separate job instead, where that breakage is news rather than a
+    # blocked release.
+    - name: Restore
+      shell: bash
+      run: |
+        dotnet restore src/Umbraco.Community.AdvancedPermissions.AI/Umbraco.Community.AdvancedPermissions.AI.csproj
+        dotnet restore tests/Umbraco.Community.AdvancedPermissions.AI.Tests/Umbraco.Community.AdvancedPermissions.AI.Tests.csproj
+
+    - name: Build
+      shell: bash
+      run: dotnet build src/Umbraco.Community.AdvancedPermissions.AI/ --configuration Release --no-restore
+
+    # Named by project file, never by directory or solution: a path that matches no project makes
+    # `dotnet test` report success while running nothing, which is indistinguishable from a green
+    # suite. The count assertion below is the second half of that guard.
+    - name: Test
+      shell: bash
+      run: dotnet test tests/Umbraco.Community.AdvancedPermissions.AI.Tests/Umbraco.Community.AdvancedPermissions.AI.Tests.csproj --configuration Release --no-restore
+
+    - name: Pack
+      shell: bash
+      run: dotnet pack src/Umbraco.Community.AdvancedPermissions.AI/ --configuration Release --no-build --output "${{ inputs.output }}"
+
+    # A package that installs cleanly and registers nothing is this repository's quietest failure
+    # mode. Without umbraco-package.json Umbraco never loads the plugin at all; without the lang
+    # files Umbraco AI's "Select Tools" dialog shows raw keys such as uaiTool_uapExplainEditorsLabel
+    # instead of names. ToolLocalizationTests guards those files in the repository — this guards
+    # that they reached the .nupkg, which is a different question and the one consumers experience.
+    - name: Verify the package ships its backoffice assets
+      shell: bash
+      run: |
+        set -euo pipefail
+        failed=0
+        for pkg in "${{ inputs.output }}"/*.nupkg; do
+          contents=$(unzip -l "$pkg")
+
+          manifest=$(echo "$contents" | grep -c "staticwebassets/App_Plugins/.*/umbraco-package.json" || true)
+          langs=$(echo "$contents" | grep -c "staticwebassets/App_Plugins/.*/lang/.*\.js" || true)
+          echo "$pkg: $manifest package manifest, $langs localization file(s)"
+
+          [ "$manifest" -gt 0 ] || { echo "::error::$pkg ships no umbraco-package.json — Umbraco would not load the plugin"; failed=1; }
+          [ "$langs" -gt 0 ] || { echo "::error::$pkg ships no lang/*.js — Umbraco AI's tool picker would show raw keys"; failed=1; }
+        done
+        exit "$failed"
+
+    # The upper bound must be a PLAIN STABLE version. A "-0" bound (for example "19.0.0-0") packs
+    # fine and passes every test, then nuget.org rejects it at push time with
+    # "400 BadRequest: invalid Version" — which fails the release after the tag is public, and a
+    # published version cannot be replaced, only unlisted and superseded. RELEASE.md records this;
+    # nothing enforced it until here. Any prerelease marker in a bound, at either end, fails.
+    #
+    # The two dependencies are named rather than counted, because dropping one is equally silent:
+    # the package would install without the base package it resolves its services from, and fail
+    # only at runtime in someone else's site.
+    - name: Verify the package's dependency bounds
+      shell: bash
+      run: |
+        set -euo pipefail
+        required="Umbraco.Community.AdvancedPermissions Umbraco.AI.Core"
+        failed=0
+        for pkg in "${{ inputs.output }}"/*.nupkg; do
+          # .snupkg files carry no dependencies; only the real package is checked.
+          case "$pkg" in *.snupkg) continue;; esac
+          nuspec=$(unzip -p "$pkg" '*.nuspec')
+
+          for id in $required; do
+            version=$(echo "$nuspec" | sed -n "s:.*<dependency id=\"$id\" version=\"\([^\"]*\)\".*:\1:p")
+            if [ -z "$version" ]; then
+              echo "::error::$pkg does not depend on $id"
+              failed=1
+              continue
+            fi
+
+            echo "$pkg: $id -> $version"
+            case "$version" in
+              *-*) echo "::error::$pkg depends on $id as '$version' — a prerelease bound is rejected by nuget.org at push time"; failed=1;;
+            esac
+          done
+        done
+        exit "$failed"

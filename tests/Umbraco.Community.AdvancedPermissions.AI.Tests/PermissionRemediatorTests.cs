@@ -23,12 +23,19 @@ public sealed class PermissionRemediatorTests
     /// <summary>The mocked repository supplying the current stored entries.</summary>
     private readonly IAdvancedPermissionRepository _repository = Substitute.For<IAdvancedPermissionRepository>();
 
+    /// <summary>
+    /// The mocked Library element repository. Every test in this class works in the content domain, so
+    /// this stays unconfigured on purpose — the content path must never read it. Cross-domain behaviour
+    /// is covered by <see cref="PermissionRemediatorDomainTests"/>.
+    /// </summary>
+    private readonly IElementPermissionRepository _elementRepository = Substitute.For<IElementPermissionRepository>();
+
     /// <summary>The real, pure resolver — never mocked.</summary>
     private readonly IPermissionResolver _resolver = new PermissionResolver();
 
     /// <summary>Builds the system under test over the current mocks.</summary>
     /// <returns>A fresh remediator.</returns>
-    private PermissionRemediator CreateSut() => new(_resolver, _repository);
+    private PermissionRemediator CreateSut() => new(_resolver, _repository, _elementRepository);
 
     /// <summary>Creates an entry with a generated id.</summary>
     /// <param name="nodeKey">The node the entry applies to.</param>
@@ -71,7 +78,7 @@ public sealed class PermissionRemediatorTests
 
         var options = await CreateSut().SuggestAsync(
             target, [root, target], ["editors", AdvancedPermissionsConstants.EveryoneRoleAlias],
-            Verb, PermissionState.Deny, CancellationToken.None);
+            Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         // A plain Allow cannot beat a same-node explicit Deny — must NOT be offered.
         Assert.DoesNotContain(options, o => o.Kind == RemediationActionKind.AddAllowOnNode);
@@ -98,7 +105,7 @@ public sealed class PermissionRemediatorTests
 
         var options = await CreateSut().SuggestAsync(
             target, [root, target], ["editors", AdvancedPermissionsConstants.EveryoneRoleAlias],
-            Verb, PermissionState.Deny, CancellationToken.None);
+            Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         var remove = Assert.Single(options, o => o.Kind == RemediationActionKind.RemoveDeny);
         Assert.NotNull(remove.GrantedBy);
@@ -118,7 +125,7 @@ public sealed class PermissionRemediatorTests
         SetupEntries(Entry(root, "editors", PermissionState.Deny, PermissionScope.ThisNodeAndDescendants));
 
         var options = await CreateSut().SuggestAsync(
-            target, [root, target], ["editors"], Verb, PermissionState.Deny, CancellationToken.None);
+            target, [root, target], ["editors"], Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         Assert.All(
             options.Where(o => o.Kind != RemediationActionKind.RemoveDeny),
@@ -142,7 +149,7 @@ public sealed class PermissionRemediatorTests
 
         var options = await CreateSut().SuggestAsync(
             target, [root, target], ["editors", AdvancedPermissionsConstants.EveryoneRoleAlias],
-            Verb, PermissionState.Deny, CancellationToken.None);
+            Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         // A priority-override Allow cannot beat a competing priority-override Deny → rejected.
         Assert.DoesNotContain(options, o => o.Kind == RemediationActionKind.AddPriorityOverrideAllow);
@@ -167,7 +174,7 @@ public sealed class PermissionRemediatorTests
 
         var options = await CreateSut().SuggestAsync(
             target, [root, parent, target], ["editors", AdvancedPermissionsConstants.EveryoneRoleAlias],
-            Verb, PermissionState.Deny, CancellationToken.None);
+            Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         Assert.Contains(options, o => o.Kind == RemediationActionKind.AddAllowOnNode);
         // The cheapest option must rank first.
@@ -187,7 +194,7 @@ public sealed class PermissionRemediatorTests
 
         var options = await CreateSut().SuggestAsync(
             target, [root, target], ["editors", AdvancedPermissionsConstants.EveryoneRoleAlias],
-            Verb, PermissionState.Deny, CancellationToken.None);
+            Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         Assert.Contains(options, o => o.Kind == RemediationActionKind.AddAllowOnNode);
         Assert.DoesNotContain(options, o => o.Kind == RemediationActionKind.RemoveDeny);
@@ -212,7 +219,7 @@ public sealed class PermissionRemediatorTests
 
         var options = await CreateSut().SuggestAsync(
             target, [root, target], ["editors", AdvancedPermissionsConstants.EveryoneRoleAlias],
-            Verb, PermissionState.Deny, CancellationToken.None);
+            Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         var removal = Assert.Single(options, o => o.Kind == RemediationActionKind.RemoveDeny);
         Assert.Contains("editors", removal.RemovedRoleAliases);
@@ -233,7 +240,7 @@ public sealed class PermissionRemediatorTests
 
         var options = await CreateSut().SuggestAsync(
             target, [root, target], ["editors", AdvancedPermissionsConstants.EveryoneRoleAlias],
-            Verb, PermissionState.Deny, CancellationToken.None);
+            Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         Assert.DoesNotContain(
             options,
@@ -253,7 +260,7 @@ public sealed class PermissionRemediatorTests
 
         var options = await CreateSut().SuggestAsync(
             target, [root, target], ["editors", AdvancedPermissionsConstants.EveryoneRoleAlias],
-            Verb, PermissionState.Deny, CancellationToken.None);
+            Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         Assert.Empty(options);
     }
@@ -271,7 +278,7 @@ public sealed class PermissionRemediatorTests
 
         await CreateSut().SuggestAsync(
             target, [root, target], ["editors", AdvancedPermissionsConstants.EveryoneRoleAlias],
-            Verb, PermissionState.Deny, CancellationToken.None);
+            Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         await _repository.Received(1).GetByRolesAndNodesAsync(
             Arg.Any<IEnumerable<string>>(), Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>());
@@ -291,7 +298,7 @@ public sealed class PermissionRemediatorTests
 
         var options = await CreateSut().SuggestAsync(
             target, [root, parent, target], ["editors"],
-            Verb, PermissionState.Deny, CancellationToken.None);
+            Verb, PermissionState.Deny, PermissionDomain.Content, CancellationToken.None);
 
         Assert.Contains(options, o => o.Kind == RemediationActionKind.AddAllowOnNode);
     }

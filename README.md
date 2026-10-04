@@ -15,7 +15,7 @@ This is an optional companion to
 [Advanced Permissions for Umbraco](https://github.com/Luuk1983/Umbraco.Community.AdvancedPermissions).
 Install it when you use both of these:
 
-- Advanced Permissions for Umbraco, to manage who may do what in your content tree.
+- Advanced Permissions for Umbraco, to manage who may do what in your content tree and Library.
 - Umbraco AI with its Copilot chat, so there is a copilot in the backoffice for this package to plug into.
 
 If you do not run Umbraco AI, this package has nothing to add. It ships no screens of its own and adds
@@ -25,7 +25,8 @@ permission setup. It never changes it.
 ## The problem it solves
 
 Advanced Permissions gives you Allow and Deny entries per user group, each with its own scope, inherited
-down the content tree, with an override for when a user's groups disagree. That is exactly the control
+down the tree — across both the content tree and the Library — with an override for when a user's groups
+disagree. That is exactly the control
 you want, and it also means a simple question like "why can't I publish this page?" stops having a simple
 answer. Working it out means knowing which groups the person is in, what is set where above the node,
 how far each of those entries reaches, and whether an override is deciding it.
@@ -60,11 +61,23 @@ Once it is set up, editors can ask the copilot things like:
 - "What can the Editors group do on this page?"
 - "Which document types can I create under News?"
 
+**The Library**
+
+- "Why can't I delete this library item?"
+- "Who can update things in this folder?"
+- "Which element types can I create in the Library?"
+- "Why can't I add this element type?"
+
 **How the permission system works**
 
 - "What is a Priority Override?"
 - "What happens if I leave a permission unset?"
+
+**Where to go in the backoffice**
+
 - "How do I change a permission?"
+- "Which editor shows me why a user can't publish?"
+- "What's the difference between the Permissions Editor and the Access Viewer?"
 
 ![The copilot explaining why an action is blocked](https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/copilot_explain_access.jpg)
 
@@ -79,10 +92,15 @@ not decide anything. It picks the right question to ask, then puts the result in
 
 ## Requirements
 
-- Umbraco CMS 17.4.0 or newer, on .NET 10. This floor comes from Umbraco AI.
-- [Umbraco AI](https://github.com/umbraco/Umbraco.AI) on the 17 line, installed and configured, with a
+- Umbraco CMS 18.0.0 or newer, on .NET 10. Note that Umbraco AI currently caps its Umbraco dependency
+  below 19, so this package cannot be installed on Umbraco 19 until that cap moves.
+- [Umbraco AI](https://github.com/umbraco/Umbraco.AI) on the 18 line, installed and configured, with a
   working copilot chat. The chat itself comes from the `Umbraco.AI.Agent.Copilot` package.
-- Advanced Permissions for Umbraco, which arrives automatically as a dependency.
+- Advanced Permissions for Umbraco 18.1.0 or newer, which arrives automatically as a dependency. The
+  18.1.0 floor is what brings the Library permission APIs this package reads.
+
+Using Umbraco 17? Install the 17.x line of this package instead — it is maintained on the `v17/main`
+branch and covers the content tree only, since the Library did not exist yet.
 
 
 ## Installation
@@ -108,7 +126,7 @@ step 5, which is the only step specific to this package.
 4. **Set up a default chat agent** for the copilot. Without one there is no chat for these tools to be
    called from.
 5. **Allow this package's tools on that agent.** Open the chat agent, go to Governance, and under
-   Allowed Tool Scopes tick "Advanced Permissions (read)". All three tools sit under that one scope.
+   Allowed Tool Scopes tick "Advanced Permissions (read)". All five tools sit under that one scope.
 
 ![Allowing the Advanced Permissions (read) tool scope on the chat agent](https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/agent_tool_scopes.jpg)
 
@@ -123,8 +141,14 @@ answer should name your real user groups.
 
 ## The tools
 
-Three tools are registered, all under the `advanced-permissions:read` scope. The copilot picks between
+Five tools are registered, all under the `advanced-permissions:read` scope. The copilot picks between
 them; you never call them yourself.
+
+The split falls along two lines. `uap_explain_access` and `uap_explain_library_access` are siblings
+because the content tree and the Library are stored and resolved separately, and the Library's arguments
+genuinely differ — element-type creation takes no node at all. `uap_explain_concepts` and
+`uap_explain_editors` are siblings for the same reason the base package's own help has a Concepts tab
+separate from its per-page help: one explains the rules, the other explains the screens.
 
 ### `uap_explain_access`
 
@@ -147,28 +171,76 @@ pure resolver on an in-memory copy of the entries, never the cached service, and
 user groups the original verdict used. `suggestFix` applies to the node aspect, to the current-user, user
 and user-group subjects, and only when a single permission is in focus.
 
+### `uap_explain_library_access`
+
+The Library counterpart. The Library holds reusable items and folders that live outside the content tree,
+and because it is stored and resolved separately, an answer from the content tool would simply be about
+the wrong thing — which is why this is its own tool rather than another `aspect`. It takes the same four
+subjects, the same detail levels and the same `suggestFix`, so anything learned about the content tool
+carries over.
+
+Two things differ, both because the Library does. With `aspect=node` the `nodeKey` is a library item or
+folder, and some permissions come back as "Not applicable" rather than allowed or denied: Create has no
+meaning on a single item, and the item-only actions — Publish, Unpublish, Duplicate, Rollback — do not
+apply to a folder itself, only to the items inside it. Those are the hatched N/A cells in the base
+package's own editors, and the package reports them as such rather than relaying the raw resolved value,
+which would have the copilot announce a Deny that is not really in effect.
+
+With `aspect=element-type-create` there is no node at all. Umbraco supplies no parent when you create an
+item in the Library, so that decision is section-wide: pass no `nodeKey`, and optionally an
+`elementTypeKey` to focus one type. Element types are creatable by default, so a type with no entries
+anywhere reads as allowed and a Deny is what hides one.
+
 ### `uap_audit_permissions`
 
 Scans stored permission entries against four checks: All Users allowed a write permission across the
 whole site from the root, an Allow entry and a Deny entry for the same permission on the same node, a
 user group able to manage permissions across a node and its descendants, and Priority Override entries. A
 `scope` argument audits one user group (the default), everything under a node, or the whole
-configuration, with an optional minimum-severity filter.
+configuration, with an optional minimum-severity filter. A `domain` argument chooses which configuration
+to scan: the content tree (the default), the Library tree, the document-type Insert Options, or the
+Library element-type create entries. All four are stored separately, so a content audit says nothing
+about the Library — ask for each domain you care about. The Library element-type domain is set once for
+the whole Library rather than per node, so the subtree scope does not apply to it; the other three do.
 
-Those four checks are the entire rule set, so a clean result means those four found nothing rather than
-that the configuration is correct in general. The whole-configuration scope is best-effort: it sweeps
-every live document node plus the root-level defaults, so entries left behind on deleted or trashed nodes
-are not included. It covers node permission entries only. Auditing the document-type Insert Options
-entries is planned.
+Three of the checks run in every domain. The fourth depends on which way the domain defaults: for node
+permissions the risk is All Users *allowed* a write permission across the whole site, while for the two
+create filters an Allow grants nothing (they can only narrow), so the risk is the mirror image — All
+Users *denied* creating a type everywhere, which hides it from everyone. Findings in a create-filter
+domain name the document type or element type they concern.
+
+Those checks are the entire rule set, so a clean result means they found nothing rather than that the
+configuration is correct in general. The whole-configuration scope is best-effort for the two tree
+domains: it sweeps every live node plus the root-level defaults, so entries left behind on deleted or
+trashed nodes are not included. For the create-filter domains it enumerates every user group, so it is
+complete.
 
 ### `uap_explain_concepts`
 
 Takes no arguments and reads nothing. It returns the conceptual reference: how permissions are stored,
-how competing entries are resolved, what each scope reaches, what Priority Override actually is, how
-Insert Options differ, and where to change a permission in the backoffice. It exists because the copilot
-answered these questions confidently and wrongly when left to its own knowledge. The wording comes from
-the base package's own help documentation, so the copilot explains the model exactly as the in-product
-help does.
+how competing entries are resolved, what each scope reaches, what Priority Override actually is, how the
+create filters differ, and that the same machinery governs two separate trees. It exists because the
+copilot answered these questions confidently and wrongly when left to its own knowledge. The wording
+comes from the base package's own help documentation, so the copilot explains the model exactly as the
+in-product help does.
+
+### `uap_explain_editors`
+
+Also takes no arguments and reads nothing. It returns the reference for the base package's eight editors
+and viewers: which one answers a given question, what each one does and does *not* do, and the exact
+backoffice navigation.
+
+It is separate from `uap_explain_concepts` because the two answer different questions, and the base
+package's own documentation splits the same way — the permission model did not change between the 17 and
+18 lines, but the number of screens doubled. Keeping them apart means "what is a Priority Override?" does
+not pay for a tour of the backoffice.
+
+The content leads with the differences rather than eight descriptions, because all eight names are some
+combination of "permissions", "access", "editor" and "viewer", and the failure worth preventing is not
+that the copilot cannot describe a screen — it is that it confidently describes the wrong one. So it
+first gives the three questions that pick a surface (which tree, which mechanism, change it or just see
+it), then the three distinctions that separate them, and only then the per-screen detail, where every
+entry names the neighbour to use instead.
 
 ## Security
 

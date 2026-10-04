@@ -15,26 +15,57 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Services;
 /// <param name="userGroupService">The Umbraco user group service used to resolve role display names.</param>
 /// <param name="entityService">The Umbraco entity service used to resolve node names.</param>
 /// <param name="contentTypeService">The Umbraco content-type service used to resolve document type display names.</param>
+/// <param name="domain">
+/// The permission tree node keys are resolved against. Defaults to <see cref="PermissionDomain.Content"/>
+/// so the content tools — and every v17 call site — are unaffected; the Library tools bind their own via
+/// <see cref="For(PermissionDomain)"/>.
+/// </param>
 public sealed class PermissionPresenter(
     IUserGroupService userGroupService,
     IEntityService entityService,
-    IContentTypeService contentTypeService)
+    IContentTypeService contentTypeService,
+    PermissionDomain domain = PermissionDomain.Content)
     : IPermissionPresenter
 {
     /// <summary>The page size used when enumerating user groups, mirroring the roles metadata endpoint.</summary>
     private const int PageSize = 100;
 
-    /// <summary>The generic label used when a node key cannot be resolved to a content name.</summary>
+    /// <summary>The generic label used when a content node key cannot be resolved to a name.</summary>
     private const string UnresolvedNodeLabel = "this node";
 
-    /// <summary>The label used for the virtual-root sentinel node key.</summary>
+    /// <summary>
+    /// The generic label used when a Library key cannot be resolved. Deliberately says "item" rather than
+    /// "node": that is the word the base package's Library editors use ("Library Item" is the column
+    /// header), and the terminology rules require the copilot to talk like the editor it is describing.
+    /// </summary>
+    private const string UnresolvedLibraryNodeLabel = "this library item";
+
+    /// <summary>The label used for the virtual-root sentinel node key in the content tree.</summary>
     private const string VirtualRootLabel = "All content (root-level default)";
+
+    /// <summary>
+    /// The label used for the virtual-root sentinel in the Library tree. It must name its own tree —
+    /// calling it "All content" while explaining a Library permission would simply be wrong, and it is
+    /// the Default permissions row of a different editor.
+    /// </summary>
+    private const string LibraryVirtualRootLabel = "All library items (root-level default)";
 
     /// <summary>The generic label used when a content-type key cannot be resolved to a name.</summary>
     private const string UnresolvedContentTypeLabel = "this document type";
 
-    /// <summary>The friendly action label presented for the doc-type create verb.</summary>
+    /// <summary>
+    /// The friendly action label presented for the doc-type create verb — the "Insert" column header of
+    /// the Document Type Permissions editor.
+    /// </summary>
     private const string TypeCreateActionLabel = "Insert";
+
+    /// <summary>
+    /// The friendly action label presented for the Library element-type create verb, taken from the
+    /// Library Element Type Permissions editor's own column header (the base package's
+    /// <c>elementTypePermissions_verbCreate</c>). Deliberately NOT "Insert": the two create filters are
+    /// different surfaces — one is per-node, the other section-wide — so they must not read alike.
+    /// </summary>
+    private const string ElementTypeCreateActionLabel = "Create in Library";
 
     /// <summary>The friendly result label for a structurally-disallowed (not an allowed child) document type.</summary>
     private const string NotApplicableLabel = "Not applicable";
@@ -69,13 +100,30 @@ public sealed class PermissionPresenter(
     }
 
     /// <inheritdoc />
+    public IPermissionPresenter For(PermissionDomain target) =>
+        target == domain
+            ? this
+            : new PermissionPresenter(userGroupService, entityService, contentTypeService, target);
+
+    /// <inheritdoc />
     public string GetVerbDisplayName(string verb)
     {
-        // The doc-type create verb is presented as the editor-facing "Insert" action rather than the raw
-        // "CreateOfType" suffix so the type-create aspect never leaks the internal verb name.
+        // The two create verbs are presented as their editor's own column label rather than the raw
+        // "CreateOfType" suffix, so neither create filter leaks an internal verb name — and so the
+        // per-node document filter never reads the same as the section-wide Library one.
+        //
+        // No domain argument is needed (or wanted) here: the verb string already says which tree it
+        // belongs to, so dispatching on the verb is both sufficient and impossible to get wrong at a
+        // call site. Every other verb — Umb.Document.*, Umb.Element.*, Umb.ElementContainer.* — falls
+        // through to the generic "text after the last dot", which is already correct for all three.
         if (string.Equals(verb, AdvancedPermissionsConstants.VerbCreateOfType, StringComparison.Ordinal))
         {
             return TypeCreateActionLabel;
+        }
+
+        if (string.Equals(verb, AdvancedPermissionsConstants.VerbElementCreateOfType, StringComparison.Ordinal))
+        {
+            return ElementTypeCreateActionLabel;
         }
 
         var lastDot = verb.LastIndexOf('.');
@@ -133,12 +181,43 @@ public sealed class PermissionPresenter(
     {
         if (nodeKey == AdvancedPermissionsConstants.VirtualRootNodeKey)
         {
-            return VirtualRootLabel;
+            return domain == PermissionDomain.Library ? LibraryVirtualRootLabel : VirtualRootLabel;
         }
 
+        return domain == PermissionDomain.Library ? GetLibraryNodeName(nodeKey) : GetContentNodeName(nodeKey);
+    }
+
+    /// <summary>Resolves a content node key to its name, or the generic content fallback.</summary>
+    /// <param name="nodeKey">The content node key.</param>
+    /// <returns>The node's name, or <see cref="UnresolvedNodeLabel"/>.</returns>
+    private string GetContentNodeName(Guid nodeKey)
+    {
         var entity = entityService.Get(nodeKey, UmbracoObjectTypes.Document);
         return string.IsNullOrWhiteSpace(entity?.Name) ? UnresolvedNodeLabel : entity.Name!;
     }
+
+    /// <summary>
+    /// Resolves a Library key to its name. The key may be either an element or an element folder and
+    /// there is no way to know which up front, so elements are tried first (the common case) and folders
+    /// second. Without the fallback every folder in a reasoning chain would read as the generic label,
+    /// which is exactly the part of the explanation an editor needs to recognise.
+    /// </summary>
+    /// <param name="nodeKey">The Library element or element folder key.</param>
+    /// <returns>The item's name, or <see cref="UnresolvedLibraryNodeLabel"/>.</returns>
+    private string GetLibraryNodeName(Guid nodeKey)
+    {
+        var entity = entityService.Get(nodeKey, UmbracoObjectTypes.Element);
+        if (string.IsNullOrWhiteSpace(entity?.Name))
+        {
+            entity = entityService.Get(nodeKey, UmbracoObjectTypes.ElementContainer);
+        }
+
+        return string.IsNullOrWhiteSpace(entity?.Name) ? UnresolvedLibraryNodeLabel : entity.Name!;
+    }
+
+    /// <inheritdoc />
+    public AccessVerdict ToNotApplicableVerdict(string verb) =>
+        new(GetVerbDisplayName(verb), NotApplicableLabel, []);
 
     /// <inheritdoc />
     public string GetContentTypeName(Guid contentTypeKey)
@@ -325,14 +404,16 @@ public sealed class PermissionPresenter(
             var role = f.RoleAlias is null ? null : await GetRoleDisplayNameAsync(f.RoleAlias, cancellationToken);
             var action = f.Verb is null ? null : GetVerbDisplayName(f.Verb);
             var node = f.NodeKey is null ? null : GetNodeName(f.NodeKey.Value);
+            var contentType = f.ContentTypeKey is null ? null : GetContentTypeName(f.ContentTypeKey.Value);
 
             findings.Add(new FriendlyAuditFinding(
                 f.RuleId,
                 f.Severity.ToString(),
-                BuildFriendlyMessage(f.RuleId, role, action, node),
+                BuildFriendlyMessage(f.RuleId, role, action, node, contentType),
                 role,
                 action,
-                node));
+                node,
+                contentType));
         }
 
         return new FriendlyAuditReport(findings, report.EntriesAnalyzed);
@@ -361,20 +442,36 @@ public sealed class PermissionPresenter(
     /// <param name="role">The friendly role name, if any.</param>
     /// <param name="action">The friendly action name, if any.</param>
     /// <param name="node">The friendly node name, if any.</param>
+    /// <param name="contentType">
+    /// The friendly document-type or element-type name, for create-filter findings. Without it a reader
+    /// is told a group has a risky create entry with no way to tell which type it concerns.
+    /// </param>
     /// <returns>The friendly, identifier-free message.</returns>
-    private static string BuildFriendlyMessage(string ruleId, string? role, string? action, string? node) => ruleId switch
+    private static string BuildFriendlyMessage(
+        string ruleId,
+        string? role,
+        string? action,
+        string? node,
+        string? contentType = null) => ruleId switch
     {
         "everyone-broad-write" =>
             $"The {role ?? "All Users"} group is allowed to {Lower(action) ?? "perform this action"} across the whole site from {node ?? "the root"}.",
+        "everyone-broad-create-deny" =>
+            $"The {role ?? "All Users"} group is denied creating {contentType ?? "this type"} anywhere, "
+                + "across the whole site — so nobody can create it at all.",
         "manage-permissions-descendants" =>
             $"The {role ?? "relevant"} user group can manage permissions on {node ?? "this node"} and all of its descendants.",
         "priority-override" =>
-            $"A Priority Override is set on the {role ?? "relevant"} user group for the {action ?? "action"} permission.",
+            $"A Priority Override is set on the {role ?? "relevant"} user group for the {action ?? "action"} permission"
+                + (contentType is null ? string.Empty : $" on {contentType}") + ".",
         "allow-deny-conflict" =>
-            $"{role ?? "This user group"} has both an Allow entry and a Deny entry for the {action ?? "same"} permission on {node ?? "the same node"}.",
+            $"{role ?? "This user group"} has both an Allow entry and a Deny entry for the {action ?? "same"} permission"
+                + (contentType is null ? string.Empty : $" on {contentType}")
+                + $" on {node ?? "the same node"}.",
         _ =>
             $"{role ?? "This user group"} has a configuration worth reviewing"
                 + (action is null ? string.Empty : $" for the {action} permission")
+                + (contentType is null ? string.Empty : $" on {contentType}")
                 + (node is null ? string.Empty : $" on {node}") + ".",
     };
 

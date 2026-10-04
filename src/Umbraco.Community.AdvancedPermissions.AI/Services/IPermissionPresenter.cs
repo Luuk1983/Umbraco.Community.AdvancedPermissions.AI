@@ -12,6 +12,28 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Services;
 public interface IPermissionPresenter
 {
     /// <summary>
+    /// Returns a presenter bound to the given permission domain, so node keys are resolved against the
+    /// right tree and the virtual-root sentinel gets the right label.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Node-name resolution is the only genuinely domain-dependent behaviour here, but it is reached from
+    /// most of the other methods via the reasoning chain. Binding the domain once therefore keeps all nine
+    /// signatures — and every existing call site — unchanged; the alternative was threading a
+    /// <see cref="PermissionDomain"/> argument through the lot of them.
+    /// </para>
+    /// <para>
+    /// The default, unbound presenter is <see cref="PermissionDomain.Content"/>, so a caller that predates
+    /// the Library (or simply does not care) behaves exactly as it did in v17. Binding is cheap — the
+    /// result is a new instance over the same injected services — and calling it with the already-bound
+    /// domain is a no-op.
+    /// </para>
+    /// </remarks>
+    /// <param name="domain">The permission tree the returned presenter should resolve against.</param>
+    /// <returns>A presenter bound to <paramref name="domain"/>.</returns>
+    IPermissionPresenter For(PermissionDomain domain);
+
+    /// <summary>
     /// Resolves a role alias to its display name: the special "All Users" label for the
     /// <c>$everyone</c> role, the user group's name for a known group alias, or the alias itself
     /// as a last-resort fallback.
@@ -45,11 +67,17 @@ public interface IPermissionPresenter
     string GetStateText(PermissionState state);
 
     /// <summary>
-    /// Resolves a content node key to a friendly name: the special "All content (root-level default)"
-    /// label for the virtual-root sentinel, the content node's name when it can be resolved, or the
-    /// generic "this node" fallback when it cannot.
+    /// Resolves a node key to a friendly name: a domain-specific label for the virtual-root sentinel (the
+    /// Default permissions row), the node's own name when it can be resolved, or a generic fallback when
+    /// it cannot.
     /// </summary>
-    /// <param name="nodeKey">The content node key.</param>
+    /// <remarks>
+    /// Which tree the key is looked up in depends on the bound <see cref="PermissionDomain"/> — see
+    /// <see cref="For(PermissionDomain)"/>. In the Library domain the key may be either an element or an
+    /// element folder, so both object types are tried; and the sentinel must not be labelled "All content"
+    /// while explaining a Library permission.
+    /// </remarks>
+    /// <param name="nodeKey">The content node, Library element, or element folder key.</param>
     /// <returns>The friendly node name.</returns>
     string GetNodeName(Guid nodeKey);
 
@@ -81,6 +109,22 @@ public interface IPermissionPresenter
         EffectivePermission permission,
         bool isInAllowedChildren,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Builds the verdict for a permission that does not apply to the node at all, so the copilot can say
+    /// "not applicable" instead of relaying a resolved value the product itself treats as meaningless.
+    /// </summary>
+    /// <remarks>
+    /// Used for the Library combinations the base package renders as a hatched <b>N/A</b> cell — the
+    /// Create permission on an item, and the item-only permissions on a folder (see
+    /// <see cref="LibraryVerbApplicability"/>). The resolver still returns a value for those, and
+    /// reporting it would have the copilot assert something like "Publish is denied on this folder",
+    /// sending an editor hunting for a Deny entry that is not in effect. No reasons are attached, because
+    /// there is no decision to explain.
+    /// </remarks>
+    /// <param name="verb">The raw verb that does not apply.</param>
+    /// <returns>A verdict whose result is the same "Not applicable" label the type-create aspect uses.</returns>
+    AccessVerdict ToNotApplicableVerdict(string verb);
 
     /// <summary>
     /// Maps a resolved <see cref="EffectivePermission"/> (and its reasoning chain) to a friendly
