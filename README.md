@@ -81,7 +81,9 @@ not decide anything. It picks the right question to ask, then puts the result in
 
 - Umbraco CMS 17.4.0 or newer, on .NET 10. This floor comes from Umbraco AI.
 - [Umbraco AI](https://github.com/umbraco/Umbraco.AI) on the 17 line, installed and configured, with a
-  working copilot chat. The chat itself comes from the `Umbraco.AI.Agent.Copilot` package.
+  working copilot chat. This package brings the Umbraco AI runtime with it, but not its backoffice
+  screens: install the `Umbraco.AI` package for the AI section, and `Umbraco.AI.Agent.Copilot` for the
+  chat itself.
 - Advanced Permissions for Umbraco, which arrives automatically as a dependency.
 
 

@@ -4,9 +4,11 @@ on:
   push:
     tags: ['v*.*.*']
 
+# No GitHub release is created here. Releases are made by hand in the GitHub UI, and only for the
+# versions worth listing: a release per tag would fill the list with every beta and rc.
 permissions:
   id-token: write # Required for NuGet trusted publishing
-  contents: write # Required for creating GitHub releases
+  contents: read # Checkout only; this workflow creates no GitHub release
 
 jobs:
   publish:
@@ -43,10 +45,3 @@ jobs:
 
       - name: Push to NuGet
         run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ./artifacts/*.nupkg
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
