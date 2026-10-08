@@ -23,11 +23,18 @@ Central versions live in `Directory.Packages.props`:
   bound packs fine locally but **nuget.org rejects it at push time**
   (`400 BadRequest: invalid Version: '18.0.0-0'`), which fails the release tag, not any test. The
   published base package's own nuspec uses plain `[17.3.0, 18.0.0)` bounds — that form is proven.
-- `Umbraco.AI.Core` (the package's only other dependency) is pinned `[17.0.0,18.0.0)` — same plain
-  upper bound; Umbraco.AI majors track the CMS major. The `Umbraco.AI.*` TestSite packages are
-  pinned to the 17.x line but never flow into the nupkg.
+- `Umbraco.AI.Startup` (the package's only other dependency) is pinned `[17.0.0,18.0.0)` — same plain
+  upper bound; Umbraco.AI majors track the CMS major. It must be **Startup, not `Umbraco.AI.Core`**:
+  Core alone packs fine, but it ships a property value converter that Umbraco type-scans and that
+  needs `IAIContextService`, which only Startup's composer registers — so a site without the Umbraco AI
+  runtime failed to boot in Development. Startup flows Core, which the code compiles against. Not the
+  `Umbraco.AI` meta package either: it also pins the backoffice static assets, and our low floor would
+  hold that UI back while another package lifts the runtime. Check the packed nuspec names
+  `Umbraco.AI.Startup` before tagging. The `Umbraco.AI.*` TestSite packages are pinned to the 17.x line
+  but never flow into the nupkg.
 - The package declares **no** direct `Umbraco.Cms.*` — its floor is implicit and **computed** from the
-  dependencies' nuspecs. Today that is **17.4.0**: `Umbraco.AI.Core` 17.0.0 requires
+  dependencies' nuspecs. Today that is **17.4.0**: `Umbraco.AI.Startup` 17.0.0 (what our floor resolves
+  to, along with the `Core`/`Persistence`/`Web` 17.0.0 it pins) requires
   `Umbraco.Cms.* [17.4.0, 17.999.999)` and the base package requires `[17.3.0, 18.0.0)`, so the higher
   floor wins. Re-derive it each release rather than repeating it (it was documented as 17.4.2 for a
   while, which was wrong), and keep the README's Requirements section in step. The only explicit
@@ -35,9 +42,11 @@ Central versions live in `Directory.Packages.props`:
 
 ## Release notes
 
-`publish.yml` uses `softprops/action-gh-release@v2` with `generate_release_notes: true` — the body
-is auto-generated from merged PRs since the previous tag. No `CHANGELOG.md`, no `<PackageReleaseNotes>`.
-For a first stable release, curate the body by hand.
+`publish.yml` pushes to NuGet and **creates no GitHub release**. Pushing a tag publishes the package and
+nothing else; a GitHub release is made by hand in the GitHub UI, and only for versions worth listing —
+a release per tag would fill the list with every beta and rc. Use the UI's "Generate release notes" for
+the body (it summarises merged PRs since the previous release you pick), then curate it. No
+`CHANGELOG.md`, no `<PackageReleaseNotes>`.
 
 ## First-publish prerequisites (one-time repo settings)
 
@@ -49,15 +58,14 @@ For a first stable release, curate the body by hand.
   package-ID-**pattern** form, before the first push. Getting this wrong fails the release tag.
 - Create a `production` GitHub environment and the `NUGET_USER` secret (both exist).
 - Optional but cheap insurance: push a prerelease tag first (e.g. `v17.0.0-rc.1`) to prove the whole
-  pipeline — trusted publishing, environment gate, push, GitHub release — before the real
-  `v17.0.0`. Remember the stable release notes are auto-generated **since the previous tag**, so
-  after an rc the stable body must be hand-curated anyway (already the plan below).
+  pipeline — trusted publishing, environment gate, push — before the real `v17.0.0`. The rc gets no
+  GitHub release, so it stays out of the release list.
 
 ## Documentation to keep in sync
 
 - `README.md` — the copilot tools and example prompts; keep in step with the actual `[AITool]`s
   (currently **three**: `uap_explain_access`, `uap_audit_permissions`, `uap_explain_concepts`).
-  Prerequisites must state the correct Umbraco floor (**17.4.2+**) and `Umbraco.AI` version. The
+  Prerequisites must state the correct Umbraco floor (**17.4.0+**) and `Umbraco.AI` version. The
   **Setting up Umbraco AI** section is the most load-bearing part of the README — the tools are
   auto-discovered but do nothing until the chat agent's Governance allows the
   `advanced-permissions:read` scope. Re-check that flow against the AI section's UI each release.
@@ -92,6 +100,6 @@ README image line — a broken image is worse than a missing one.
     dotnet test
     dotnet pack src/Umbraco.Community.AdvancedPermissions.AI/
 
-When inspecting the `.nupkg`: README + `package_logo_128x128.png` packed; `Umbraco.AI` +
+When inspecting the `.nupkg`: README + `package_logo_128x128.png` packed; `Umbraco.AI.Startup` +
 `Umbraco.Community.AdvancedPermissions` declared as dependencies (no bundled DLLs); and
 `wwwroot/.../umbraco-package.json` version synced by the MinVer build target.

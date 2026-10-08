@@ -27,9 +27,10 @@
 
   <!--
     Umbraco AI runtime + copilot chat UI, for manual verification of the AI companion package.
-    Umbraco.AI is the runtime meta-package the HOST supplies (the AI package itself references only
-    Umbraco.AI.Core, the authoring contract); Umbraco.AI.Agent.Copilot adds the backoffice copilot
-    chat UI and transitively pulls in Umbraco.AI.Agent + Umbraco.AI.Core.
+    Umbraco.AI is the meta-package the HOST supplies for the backoffice AI section (the AI package
+    itself references only Umbraco.AI.Startup, the runtime, which flows Umbraco.AI.Core);
+    Umbraco.AI.Agent.Copilot adds the backoffice copilot chat UI and transitively pulls in
+    Umbraco.AI.Agent + Umbraco.AI.Core.
     A human must still add a provider package (Umbraco.AI.OpenAI / .Anthropic — versions are already in
     Directory.Packages.props) and a key before the copilot can run. See README "Local verification".
   -->

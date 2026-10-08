@@ -9,16 +9,22 @@
          it at push time (400 BadRequest: invalid Version: '18.0.0-0'), and the published base
          package's own nuspec uses plain "[17.3.0, 18.0.0)" bounds — that is the proven form. -->
     <PackageVersion Include="Umbraco.Community.AdvancedPermissions" Version="[17.2.0,18.0.0)" />
-    <!-- Umbraco AI — the [AITool] authoring contract. The package references ONLY Umbraco.AI.Core:
-         it needs the attributes ([AITool]/[AIToolScope]), IRuntimeContextContributor, and the
-         AIRuntimeContextContributors() builder extension — all shipped in Umbraco.AI.Core, which
-         also flows the Umbraco.Cms.* contracts transitively. The full Umbraco.AI runtime bundle
-         (Startup/Web/Persistence/StaticAssets) is a HOST concern, referenced by the TestSite only.
+    <!-- Umbraco AI — the runtime. The package references Umbraco.AI.Startup, which registers Umbraco
+         AI's services and flows Umbraco.AI.Core (the [AITool]/[AIToolScope] attributes,
+         IRuntimeContextContributor, the AIRuntimeContextContributors() builder extension) and the
+         Umbraco.Cms.* contracts transitively.
+         It must NOT be Umbraco.AI.Core alone: Core ships AIContextPickerPropertyValueConverter, which
+         Umbraco type-scans and registers, and which needs IAIContextService — registered only by
+         Startup's composer. A site with Core but no runtime fails to boot in Development (DI
+         validation). Umbraco.AI.Agent depends on Startup for the same reason.
+         Not the Umbraco.AI meta package: that also pins Umbraco.AI.Web.StaticAssets, and with NuGet's
+         lowest-applicable resolution our floor would hold the backoffice UI at 17.0.0 while another
+         package lifts the runtime — a UI/API mismatch. The UI stays a HOST concern (README).
          Realigned to the CMS major in the 2026.06 releases, so 17.0.0 targets Umbraco.Cms 17.x.
          Capped below 18 like the base-package pin: Umbraco.AI majors track the CMS major, so an
          uncapped floor would claim v18 compatibility this v17-targeting package cannot honour.
-         Agent/providers/Copilot are TestSite-only (manual verification). -->
-    <PackageVersion Include="Umbraco.AI.Core" Version="[17.0.0,18.0.0)" />
+         Umbraco.AI (meta)/Agent/providers/Copilot are TestSite-only (manual verification). -->
+    <PackageVersion Include="Umbraco.AI.Startup" Version="[17.0.0,18.0.0)" />
     <PackageVersion Include="Umbraco.AI" Version="17.2.0" />
     <PackageVersion Include="Umbraco.AI.Agent" Version="17.0.0" />
     <PackageVersion Include="Umbraco.AI.Agent.Copilot" Version="17.0.1" />
@@ -26,9 +32,11 @@
     <PackageVersion Include="Umbraco.AI.OpenAI" Version="17.0.0" />
     <!-- Umbraco CMS meta — TestSite only (CPM requires a version for the direct reference). The
          package project declares NO direct Umbraco.Cms.* references — they flow transitively, and the
-         real floor is computed from the dependencies' nuspecs: Umbraco.AI.Core 17.0.0 requires
-         [17.4.0, 17.999.999) and the base package [17.3.0, 18.0.0), so 17.4.0 wins. This pin only has
-         to sit at or above that floor. -->
+         real floor is computed from the dependencies' nuspecs: Umbraco.AI.Startup 17.0.0 (the version
+         our floor resolves to) requires [17.4.0, 17.999.999) and the base package [17.3.0, 18.0.0),
+         so 17.4.0 wins. This pin only has to sit at or above that floor.
+         Note Umbraco.AI's 17.999.999 ceiling: this package physically cannot install on
+         Umbraco 18, whatever the base-package bound says. -->
     <PackageVersion Include="Umbraco.Cms" Version="17.5.3" />
     <!-- TestSite infra -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.6" />
