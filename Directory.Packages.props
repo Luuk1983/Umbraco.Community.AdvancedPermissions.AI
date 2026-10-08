@@ -14,16 +14,22 @@
          (IElementNodePermissionService, AdvancedPermissionsConstants.ElementVerbs,
          VerbElementCreateOfType) were introduced in 18.1.0. -->
     <PackageVersion Include="Umbraco.Community.AdvancedPermissions" Version="[18.1.0,19.0.0)" />
-    <!-- Umbraco AI — the [AITool] authoring contract. The package references ONLY Umbraco.AI.Core:
-         it needs the attributes ([AITool]/[AIToolScope]), IRuntimeContextContributor, and the
-         AIRuntimeContextContributors() builder extension — all shipped in Umbraco.AI.Core, which
-         also flows the Umbraco.Cms.* contracts transitively. The full Umbraco.AI runtime bundle
-         (Startup/Web/Persistence/StaticAssets) is a HOST concern, referenced by the TestSite only.
+    <!-- Umbraco AI — the runtime. The package references Umbraco.AI.Startup, which registers Umbraco
+         AI's services and flows Umbraco.AI.Core (the [AITool]/[AIToolScope] attributes,
+         IRuntimeContextContributor, the AIRuntimeContextContributors() builder extension) and the
+         Umbraco.Cms.* contracts transitively.
+         It must NOT be Umbraco.AI.Core alone: Core ships AIContextPickerPropertyValueConverter, which
+         Umbraco type-scans and registers, and which needs IAIContextService — registered only by
+         Startup's composer. A site with Core but no runtime fails to boot in Development (DI
+         validation). Umbraco.AI.Agent depends on Startup for the same reason.
+         Not the Umbraco.AI meta package: that also pins Umbraco.AI.Web.StaticAssets, and with NuGet's
+         lowest-applicable resolution our floor would hold the backoffice UI at 18.0.0 while another
+         package lifts the runtime — a UI/API mismatch. The UI stays a HOST concern (README).
          Umbraco.AI majors track the CMS major, so 18.0.0 targets Umbraco.Cms 18.x. Capped below 19
          like the base-package pin: an uncapped floor would claim v19 compatibility this
          v18-targeting package cannot honour.
-         Agent/providers/Copilot are TestSite-only (manual verification). -->
-    <PackageVersion Include="Umbraco.AI.Core" Version="[18.0.0,19.0.0)" />
+         Umbraco.AI (meta)/Agent/providers/Copilot are TestSite-only (manual verification). -->
+    <PackageVersion Include="Umbraco.AI.Startup" Version="[18.0.0,19.0.0)" />
     <PackageVersion Include="Umbraco.AI" Version="18.3.1" />
     <PackageVersion Include="Umbraco.AI.Agent" Version="18.1.4" />
     <PackageVersion Include="Umbraco.AI.Agent.Copilot" Version="18.0.5" />
@@ -31,10 +37,10 @@
     <PackageVersion Include="Umbraco.AI.OpenAI" Version="18.2.0" />
     <!-- Umbraco CMS meta — TestSite only (CPM requires a version for the direct reference). The
          package project declares NO direct Umbraco.Cms.* references — they flow transitively, and the
-         real floor is computed from the dependencies' nuspecs: Umbraco.AI.Core 18.3.1 requires
-         [18.0.0, 18.999.999) and the base package [18.0.0, 19.0.0), so 18.0.0 wins. This pin only has
-         to sit at or above that floor.
-         Note Umbraco.AI.Core's 18.999.999 ceiling: this package physically cannot install on
+         real floor is computed from the dependencies' nuspecs: Umbraco.AI.Startup 18.0.0 (the version
+         our floor resolves to) requires [18.0.0, 18.999.999) and the base package [18.0.0, 19.0.0),
+         so 18.0.0 wins. This pin only has to sit at or above that floor.
+         Note Umbraco.AI's 18.999.999 ceiling: this package physically cannot install on
          Umbraco 19, whatever the base-package bound says. -->
     <PackageVersion Include="Umbraco.Cms" Version="18.1.1" />
     <!-- TestSite infra. EF Core is pinned to exactly the version Umbraco.Cms 18.1.1 references

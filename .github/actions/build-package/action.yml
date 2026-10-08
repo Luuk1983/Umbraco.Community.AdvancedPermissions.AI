@@ -76,11 +76,17 @@ runs:
     # The two dependencies are named rather than counted, because dropping one is equally silent:
     # the package would install without the base package it resolves its services from, and fail
     # only at runtime in someone else's site.
+    #
+    # The AI dependency is Umbraco.AI.Startup, NOT Umbraco.AI.Core. Core alone compiles and packs
+    # fine, but it ships a property value converter that Umbraco type-scans and registers, and that
+    # converter needs IAIContextService, which only Umbraco.AI.Startup's composer registers. A site
+    # with this package but without the Umbraco AI runtime then fails to boot in Development
+    # ("Unable to resolve service for type 'Umbraco.AI.Core.Contexts.IAIContextService'").
     - name: Verify the package's dependency bounds
       shell: bash
       run: |
         set -euo pipefail
-        required="Umbraco.Community.AdvancedPermissions Umbraco.AI.Core"
+        required="Umbraco.Community.AdvancedPermissions Umbraco.AI.Startup"
         failed=0
         for pkg in "${{ inputs.output }}"/*.nupkg; do
           # .snupkg files carry no dependencies; only the real package is checked.
