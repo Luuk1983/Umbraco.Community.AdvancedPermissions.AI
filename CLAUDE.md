@@ -42,15 +42,24 @@ No Core/Data/Client projects: the package has no persistence and no Vite/Lit fro
   so the package compiles against the contract without a separate reference. **No direct
   `Umbraco.Cms.*` references** — they arrive transitively (the CMS floor is implicit; see below).
   Upper bounds are **plain stable versions** — nuget.org rejects a `-0` bound at push time (see RELEASE.md).
-- **`Umbraco.AI.Core`** (`[18.0.0,19.0.0)`) — the `[AITool]` authoring contract the package
-  references; the full `Umbraco.AI` runtime is a host concern (the TestSite runs `Umbraco.AI` 18.3.1).
-  Umbraco.AI majors track the CMS major.
+- **`Umbraco.AI.Startup`** (`[18.0.0,19.0.0)`) — the Umbraco AI runtime (its composer registers the
+  services). It flows `Umbraco.AI.Core`, the `[AITool]` authoring contract the code compiles against.
+  **Never go back to `Umbraco.AI.Core` alone**: Core ships `AIContextPickerPropertyValueConverter`,
+  which Umbraco type-scans and registers, and it needs `IAIContextService` — registered only by Startup.
+  A site with this package but no runtime then fails to boot in Development ("Unable to resolve service
+  for type 'Umbraco.AI.Core.Contexts.IAIContextService'"); Production boots only because nothing resolves
+  the converter. `Umbraco.AI.Agent` depends on Startup the same way. **Not the `Umbraco.AI` meta package
+  either**: it also pins `Umbraco.AI.Web.StaticAssets`, and with lowest-applicable resolution our 18.0.0
+  floor would hold the backoffice UI there while another package lifts the runtime. The UI stays a host
+  concern (the TestSite runs `Umbraco.AI` 18.3.1). The build action's dependency check names
+  `Umbraco.AI.Startup`, so a regression fails the PR. Umbraco.AI majors track the CMS major.
 - **The effective Umbraco CMS floor is `18.0.0`**, and it is *computed*, never declared here. Read it off
-  the dependencies' own nuspecs: `Umbraco.AI.Core` 18.3.1 requires `Umbraco.Cms.* [18.0.0, 18.999.999)`
-  and the base package requires `[18.0.0, 19.0.0)`, so they agree at 18.0.0. Do not restate this number
+  the dependencies' own nuspecs at the version our floor resolves to: `Umbraco.AI.Startup` 18.0.0 requires
+  `Umbraco.Cms.* [18.0.0, 18.999.999)` and the base package requires `[18.0.0, 19.0.0)`, so they agree at
+  18.0.0. Do not restate this number
   from memory (on the v17 line it was documented as 17.4.2 for a while and that was wrong) — re-derive it
   from the nuspecs whenever a dependency version moves, and update the README's Requirements section to
-  match. Note `Umbraco.AI.Core`'s `18.999.999` ceiling: the package physically cannot install on
+  match. Note Umbraco AI's `18.999.999` ceiling: the package physically cannot install on
   Umbraco 19, whatever the base-package bound says.
 
 ## Version sync (backoffice == NuGet)

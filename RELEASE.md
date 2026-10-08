@@ -35,27 +35,36 @@ Central versions live in `Directory.Packages.props`:
   published base package's own nuspec uses plain `[18.0.0, 19.0.0)` bounds — that form is proven.
   The **18.1.0** floor is not arbitrary: the Library permission APIs this package reads
   (`IElementNodePermissionService`, `ElementVerbs`, `VerbElementCreateOfType`) start there.
-- `Umbraco.AI.Core` (the package's only other dependency) is pinned `[18.0.0,19.0.0)` — same plain
-  upper bound; Umbraco.AI majors track the CMS major. The `Umbraco.AI.*` TestSite packages are
-  pinned to the 18.x line but never flow into the nupkg.
+- `Umbraco.AI.Startup` (the package's only other dependency) is pinned `[18.0.0,19.0.0)` — same plain
+  upper bound; Umbraco.AI majors track the CMS major. It must be **Startup, not `Umbraco.AI.Core`**:
+  Core alone packs fine, but it ships a property value converter that Umbraco type-scans and that
+  needs `IAIContextService`, which only Startup's composer registers — so a site without the Umbraco AI
+  runtime failed to boot in Development. Startup flows Core, which the code compiles against. Not the
+  `Umbraco.AI` meta package either: it also pins the backoffice static assets, and our low floor would
+  hold that UI back while another package lifts the runtime. The composite action's dependency check
+  names `Umbraco.AI.Startup`, so a regression to Core fails the pull request. The `Umbraco.AI.*`
+  TestSite packages are pinned to the 18.x line but never flow into the nupkg.
 - The TestSite's `Microsoft.EntityFrameworkCore.Sqlite` pin must **exactly** match what the pinned
   `Umbraco.Cms` references. A lower patch fails restore under `TreatWarningsAsErrors` (NU1605 package
   downgrade); a higher one triggers an MSB3277 assembly-version conflict. Bump the two together.
 - The package declares **no** direct `Umbraco.Cms.*` — its floor is implicit and **computed** from the
-  dependencies' nuspecs. Today that is **18.0.0**: `Umbraco.AI.Core` 18.3.1 requires
+  dependencies' nuspecs. Today that is **18.0.0**: `Umbraco.AI.Startup` 18.0.0 (what our floor resolves to) requires
   `Umbraco.Cms.* [18.0.0, 18.999.999)` and the base package requires `[18.0.0, 19.0.0)`, so they agree.
   Re-derive it each release rather than repeating it (on the v17 line it was documented as 17.4.2 for a
   while, which was wrong), and keep the README's Requirements section in step. The only explicit
   `Umbraco.Cms` pin (TestSite) must stay at or above that floor.
-- **`Umbraco.AI.Core`'s upper bound is a hard install ceiling**: its `18.999.999` cap on `Umbraco.Cms.*`
+- **Umbraco AI's upper bound is a hard install ceiling**: its `18.999.999` cap on `Umbraco.Cms.*`
   means this package cannot install on Umbraco 19 no matter what the base-package bound allows. The
   README says so explicitly; keep that statement accurate when Umbraco.AI moves.
 
 ## Release notes
 
-`publish.yml` uses `softprops/action-gh-release@v2` with `generate_release_notes: true` — the body
-is auto-generated from merged PRs since the previous tag. No `CHANGELOG.md`, no `<PackageReleaseNotes>`.
-For a first stable release, curate the body by hand.
+`publish.yml` publishes to NuGet only and **does not create a GitHub release**. Releases are created
+by hand in the GitHub UI, for stable versions only, so beta and rc tags do not clutter the releases
+list. Use the UI's "Generate release notes" button for a starting body (it is built from merged PR
+titles), and pick the previous **stable** tag as the comparison base so the notes cover everything
+since the last real release rather than since the last rc. No `CHANGELOG.md`, no
+`<PackageReleaseNotes>`.
 
 ## First-publish prerequisites (one-time repo settings)
 
@@ -67,9 +76,8 @@ For a first stable release, curate the body by hand.
   package-ID-**pattern** form, before the first push. Getting this wrong fails the release tag.
 - Create a `production` GitHub environment and the `NUGET_USER` secret (both exist).
 - Optional but cheap insurance: push a prerelease tag first (e.g. `v18.0.0-rc.1`) to prove the whole
-  pipeline — trusted publishing, environment gate, push, GitHub release — before the real
-  `v18.0.0`. Remember the stable release notes are auto-generated **since the previous tag**, so
-  after an rc the stable body must be hand-curated anyway (already the plan below).
+  pipeline — trusted publishing, environment gate, push — before the real `v18.0.0`. A prerelease
+  tag gets no GitHub release; that is created by hand for the stable version (see Release notes).
 
 ## Documentation to keep in sync
 

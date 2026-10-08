@@ -67,7 +67,7 @@ Every type, method and property needs an XML doc comment, whatever its accessibi
 
 Branch off `main`. It is protected and takes squash merges through a pull request only. Keep the pull
 request focused, and make sure `dotnet build` and `dotnet test` are both clean. Pull request titles
-become the auto-generated release notes, so write them as a reader-facing summary of the change.
+become the generated release notes, so write them as a reader-facing summary of the change.
 
 ## Reporting bugs
 

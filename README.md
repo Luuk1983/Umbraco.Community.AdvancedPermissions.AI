@@ -95,7 +95,9 @@ not decide anything. It picks the right question to ask, then puts the result in
 - Umbraco CMS 18.0.0 or newer, on .NET 10. Note that Umbraco AI currently caps its Umbraco dependency
   below 19, so this package cannot be installed on Umbraco 19 until that cap moves.
 - [Umbraco AI](https://github.com/umbraco/Umbraco.AI) on the 18 line, installed and configured, with a
-  working copilot chat. The chat itself comes from the `Umbraco.AI.Agent.Copilot` package.
+  working copilot chat. This package brings the Umbraco AI runtime with it, but not its backoffice
+  screens: install the `Umbraco.AI` package for the AI section, and `Umbraco.AI.Agent.Copilot` for the
+  chat itself.
 - Advanced Permissions for Umbraco 18.1.0 or newer, which arrives automatically as a dependency. The
   18.1.0 floor is what brings the Library permission APIs this package reads.
 
