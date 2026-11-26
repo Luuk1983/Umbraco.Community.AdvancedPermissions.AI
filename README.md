@@ -98,8 +98,9 @@ not decide anything. It picks the right question to ask, then puts the result in
   working copilot chat. This package brings the Umbraco AI runtime with it, but not its backoffice
   screens: install the `Umbraco.AI` package for the AI section, and `Umbraco.AI.Agent.Copilot` for the
   chat itself.
-- Advanced Permissions for Umbraco 18.1.0 or newer, which arrives automatically as a dependency. The
-  18.1.0 floor is what brings the Library permission APIs this package reads.
+- Advanced Permissions for Umbraco 18.3.0 or newer, which arrives automatically as a dependency. The
+  18.3.0 floor is what brings the start-node service this package uses, so its answers account for
+  start nodes the same way the Access Viewers do.
 
 Using Umbraco 17? Install the 17.x line of this package instead — it is maintained on the `v17/main`
 branch and covers the content tree only, since the Library did not exist yet.
@@ -146,6 +147,10 @@ answer should name your real user groups.
 Five tools are registered, all under the `advanced-permissions:read` scope. The copilot picks between
 them; you never call them yourself.
 
+Like the base package's viewers, the tools only let someone with access to the Users section look up
+other people's permissions. Without it, an editor can still ask about their own access, but asking about
+another user, a user group, or every user group, and running an audit, is refused.
+
 The split falls along two lines. `uap_explain_access` and `uap_explain_library_access` are siblings
 because the content tree and the Library are stored and resolved separately, and the Library's arguments
 genuinely differ — element-type creation takes no node at all. `uap_explain_concepts` and
@@ -162,6 +167,15 @@ types may be created under a node. For `type-create` the `nodeKey` is the parent
 `contentTypeKey` to focus one document type, or leave it out for the full roster. Document types that
 Umbraco's own allowed-child-types configuration rules out come back as "Not applicable", kept separate
 from a permission Deny.
+
+Start nodes are taken into account the same way the base package's Access Viewers do. Umbraco checks them
+before any permission, so when the subject's start nodes do not reach the node (or, for `type-create`, the
+parent), every result comes back as "Blocked (start nodes)" instead of allowed or denied. The answer keeps
+what the permissions alone would give and names the start nodes in effect and who set them. A blocked
+answer never carries a suggested fix, because no permission entry can change it. In the all-user-groups
+roster, a group whose own start node misses the node keeps its allowed or denied result and is also
+flagged, with a note that users combine the start nodes of all their groups, so a member may still reach
+the node through another group. The All Users group has no start nodes and is never blocked.
 
 Set `suggestFix=true` to get the confirmed fixes described above. The package builds a small,
 case-specific set of candidate changes, simulates each one against its own pure resolver, and returns
@@ -191,7 +205,20 @@ which would have the copilot announce a Deny that is not really in effect.
 With `aspect=element-type-create` there is no node at all. Umbraco supplies no parent when you create an
 item in the Library, so that decision is section-wide: pass no `nodeKey`, and optionally an
 `elementTypeKey` to focus one type. Element types are creatable by default, so a type with no entries
-anywhere reads as allowed and a Deny is what hides one.
+anywhere reads as allowed and a Deny is what hides one. That only holds for someone who can reach the
+Library: a user or user group with no Library start node at all gets "Blocked (start nodes)" for every
+type. Right after an upgrade to Umbraco 18 that is every group except Administrators.
+
+Library start nodes apply to `aspect=node` too, exactly as content start nodes do, except that a
+permission that is "Not applicable" for that kind of node stays not applicable.
+
+Umbraco AI currently offers the copilot in the Content and Media sections but not in the Library, so
+Library questions are asked from another section and the copilot has no Library item in front of it. Name
+the item or folder instead: the tool takes a `nodeName` and looks it up. An exact name (ignoring case)
+is used directly. When several nodes share the name, or only similar names exist, the copilot gets up to
+ten candidates with the folder each sits in, and asks you which one you mean. Someone without access to
+the Users section only finds what their Library start nodes let them see, so a name search never reveals
+an item Umbraco hides from them.
 
 ### `uap_audit_permissions`
 
@@ -210,6 +237,10 @@ permissions the risk is All Users *allowed* a write permission across the whole 
 create filters an Allow grants nothing (they can only narrow), so the risk is the mirror image — All
 Users *denied* creating a type everywhere, which hides it from everyone. Findings in a create-filter
 domain name the document type or element type they concern.
+
+The Library domain runs one more check: a user group that has Library Allow entries but no Library start
+node, so on its own it gives no Library access and its entries only help members who reach the Library
+through another group or their own start node.
 
 Those checks are the entire rule set, so a clean result means they found nothing rather than that the
 configuration is correct in general. The whole-configuration scope is best-effort for the two tree

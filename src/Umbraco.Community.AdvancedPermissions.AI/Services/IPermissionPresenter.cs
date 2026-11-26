@@ -74,8 +74,8 @@ public interface IPermissionPresenter
     /// <remarks>
     /// Which tree the key is looked up in depends on the bound <see cref="PermissionDomain"/> — see
     /// <see cref="For(PermissionDomain)"/>. In the Library domain the key may be either an element or an
-    /// element folder, so both object types are tried; and the sentinel must not be labelled "All content"
-    /// while explaining a Library permission.
+    /// element folder, so both object types are tried; and the sentinel is labelled for its own tree
+    /// ("Default permissions" or "Default permissions (Library)"), never the other tree's.
     /// </remarks>
     /// <param name="nodeKey">The content node, Library element, or element folder key.</param>
     /// <returns>The friendly node name.</returns>

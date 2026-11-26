@@ -102,8 +102,10 @@ public sealed class PermissionPresenterDomainTests
     }
 
     /// <summary>
-    /// The virtual-root sentinel is the Default permissions row, and its label must name the tree it
-    /// baselines — saying "All content" while explaining a Library permission would be simply wrong.
+    /// The virtual-root sentinel is the Default permissions row, and both editors label it exactly that
+    /// (base <c>en.ts</c>: <c>contentRoot</c> and <c>library_root</c>), so the label must start with the
+    /// words on screen. The Library's still names its tree, so a Library answer never reads as if it were
+    /// about the content tree's baseline.
     /// </summary>
     [Fact]
     public void GetNodeName_VirtualRoot_IsLabelledPerDomain()
@@ -113,9 +115,8 @@ public sealed class PermissionPresenterDomainTests
         var content = Sut.For(PermissionDomain.Content).GetNodeName(root);
         var library = Sut.For(PermissionDomain.Library).GetNodeName(root);
 
-        Assert.Contains("content", content, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("librar", library, StringComparison.OrdinalIgnoreCase);
-        Assert.NotEqual(content, library);
+        Assert.Equal("Default permissions", content);
+        Assert.Equal("Default permissions (Library)", library);
     }
 
     /// <summary>An unresolvable Library key falls back to a generic label rather than throwing or leaking a GUID.</summary>

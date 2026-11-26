@@ -319,4 +319,64 @@ public sealed class AdvancedPermissionsGroundingContributorTests
         Assert.Empty(context.Variables);
         Assert.Equal(dataCountBefore, context.Data.Count);
     }
+
+    /// <summary>
+    /// Start nodes are the second invisible cause of "can't do this" (Umbraco checks them before any
+    /// permission), so the document half must name them and must no longer steer the model away from
+    /// structural causes.
+    /// </summary>
+    [Fact]
+    public void Contribute_DocumentContext_NamesStartNodesAsCause()
+    {
+        var context = NewContext();
+        context.SetValue(Constants.ContextKeys.EntityType, "document");
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("start nodes", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("before concluding the cause is structural", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>A start-node block is never fixed by a permission entry, and the grounding must say so.</summary>
+    [Fact]
+    public void Contribute_DocumentContext_NeverSuggestsAnEntryForAStartNodeBlock()
+    {
+        var context = NewContext();
+        context.SetValue(Constants.ContextKeys.EntityType, "document");
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("Blocked (start nodes)", grounding, StringComparison.Ordinal);
+        Assert.Contains("never suggest a permission entry", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>The always-on pointer lists start nodes among the topics to look up in uap_explain_concepts.</summary>
+    [Fact]
+    public void Contribute_AnyContext_PointsStartNodeQuestionsAtTheConceptsTool()
+    {
+        var context = NewContext();
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("start nodes", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Live-check finding: asked by an editor without the Users section, the copilot sent her to the Library
+    /// Access Viewer — a screen she cannot open. Every editor and viewer lives in the Users section, so the
+    /// grounding must say who can use them and what to do for everyone else.
+    /// </summary>
+    [Fact]
+    public void Contribute_AnyContext_SaysTheScreensNeedTheUsersSection()
+    {
+        var context = NewContext();
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("only people with access to the Users section can open them", grounding, StringComparison.Ordinal);
+    }
 }

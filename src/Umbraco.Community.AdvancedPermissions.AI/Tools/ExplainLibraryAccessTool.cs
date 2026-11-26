@@ -42,6 +42,9 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
 /// <param name="elementTypes">Provider for the element types creatable in the Library.</param>
 /// <param name="remediation">The remediation service used to compute confirmed denial-to-allow changes when <see cref="ExplainLibraryAccessArgs.SuggestFix"/> is set.</param>
 /// <param name="userService">The Umbraco user service used to resolve a user's group memberships.</param>
+/// <param name="lookupGuard">Refuses lookups of anyone other than the asker unless the asker has Users-section access.</param>
+/// <param name="startNodeReach">Works out whether the subject's Library start nodes block it, which Umbraco checks before any Library permission.</param>
+/// <param name="itemNames">Finds a Library item or folder by name, for when the copilot has no key.</param>
 [AITool("uap_explain_library_access", "Explain Library access", ScopeId = "advanced-permissions:read")]
 public sealed class ExplainLibraryAccessTool(
     IElementNodePermissionService permissions,
@@ -52,11 +55,20 @@ public sealed class ExplainLibraryAccessTool(
     IDocTypePermissionService docTypePermissions,
     ILibraryElementTypeProvider elementTypes,
     IPermissionRemediationService remediation,
-    IUserService userService)
+    IUserService userService,
+    IPermissionLookupGuard lookupGuard,
+    IStartNodeReachResolver startNodeReach,
+    ILibraryItemNameResolver itemNames)
     : AIToolBase<ExplainLibraryAccessArgs>
 {
     /// <summary>The page size used when enumerating user groups, mirroring the roles metadata endpoint.</summary>
     private const int PageSize = 100;
+
+    /// <summary>
+    /// Maps the user group the model names — usually by display name, which is all it ever sees — to the
+    /// real alias, so an unknown alias is never silently resolved as a group with no entries.
+    /// </summary>
+    private readonly UserGroupNameResolver _userGroupNames = new(userGroupService);
 
     /// <summary>
     /// The presenter, bound once to the Library domain. Every projection below therefore resolves node
@@ -82,7 +94,10 @@ public sealed class ExplainLibraryAccessTool(
         "Set `subject`: `current-user` (the editor asking about themselves — 'why can't I delete this library item?'), " +
         "`user` (one specific user), `user-group` (one user group, or 'All Users'), or `all-user-groups` " +
         "(every user group — 'who can update library items here?'). " +
-        "With aspect=node (the default) `nodeKey` is a library item or folder, and it returns each Library " +
+        "With aspect=node (the default) `nodeKey` is a library item or folder — or pass `nodeName`, its name as " +
+        "shown in the Library, when you don't have the key (you usually won't: never ask the editor for a key). " +
+        "A name that matches several nodes, or only similar names, returns candidates with their folder: ask the " +
+        "editor which one they mean and call again with its nodeKey. It returns each Library " +
         "permission's Allowed/Denied result with the reason (which user group and item, and whether the entry " +
         "is set directly or inherited). Some permissions are reported 'Not applicable' rather than allowed or " +
         "denied, because they have no meaning for that kind of node — Create on a single item, and " +
@@ -91,21 +106,46 @@ public sealed class ExplainLibraryAccessTool(
         "Set aspect=element-type-create for 'which element types can I create in the Library?' or 'why can't I " +
         "add element type X in the Library?'. That decision is SECTION-WIDE: pass NO nodeKey, because Umbraco " +
         "gives no parent when you create in the Library. Element types are creatable by DEFAULT, so a type with " +
-        "no entries anywhere shows as allowed, and a Deny is what hides one. " +
+        "no entries anywhere shows as allowed, and a Deny is what hides one — but only for someone who can reach " +
+        "the Library at all: a user or user group with no Library start node is `Blocked (start nodes)`, which " +
+        "is the state of every group except Administrators right after an upgrade to Umbraco 18. " +
+        "Umbraco checks Library start nodes before any Library permission, so a `Blocked (start nodes)` result " +
+        "(`ifInsideStartNodes` is what the permissions alone would give) is never fixed by a permission entry — " +
+        "relay its `startNodes` instead. A permission that is 'Not applicable' stays not applicable even then. " +
         "Set suggestFix=true (with a single permission, aspect=node, and the `current-user`/`user`/`user-group` " +
         "subject) to also get the concrete, confirmed changes that would grant a denied permission — computed by " +
         "simulating them against the resolver, so do NOT guess fixes yourself (a plain Allow entry cannot beat a " +
         "Deny entry on the same node). " +
+        "Looking up another user, a user group, or every user group needs access to the Users section " +
+        "(the base package's Access Viewer has the same rule); asking about your own access (`current-user`) never does. " +
         "This is READ-ONLY: it describes the entries a human must add in the backoffice; it never applies them, " +
         "and you cannot apply or change permissions — never offer to.";
 
     /// <inheritdoc />
     protected override async Task<object> ExecuteAsync(
         ExplainLibraryAccessArgs args,
-        CancellationToken cancellationToken = default) =>
-        args.Aspect == LibraryAspect.ElementTypeCreate
+        CancellationToken cancellationToken = default)
+    {
+        if (args.Subject != ExplainSubject.CurrentUser && !lookupGuard.CanInspectOthers())
+        {
+            return new AccessError(PermissionLookupGuard.OtherSubjectRefusal);
+        }
+
+        if (args.Subject == ExplainSubject.UserGroup && !string.IsNullOrWhiteSpace(args.UserGroupAlias))
+        {
+            var match = await _userGroupNames.ResolveAsync(args.UserGroupAlias);
+            if (match.Alias is null)
+            {
+                return new AccessError(match.Error!);
+            }
+
+            args = args with { UserGroupAlias = match.Alias };
+        }
+
+        return args.Aspect == LibraryAspect.ElementTypeCreate
             ? await ExplainElementTypeCreateAsync(args, cancellationToken)
             : await ExplainNodeAsync(args, cancellationToken);
+    }
 
     // ----------------------------------------------------------------------------------------------
     // Node aspect: permissions on a Library item or folder. Mirrors the content tool's node aspect —
@@ -120,9 +160,22 @@ public sealed class ExplainLibraryAccessTool(
     /// <returns>A friendly explanation/verdict/roster, or an <see cref="AccessError"/>.</returns>
     private async Task<object> ExplainNodeAsync(ExplainLibraryAccessArgs args, CancellationToken cancellationToken)
     {
+        if (args.NodeKey is null && !string.IsNullOrWhiteSpace(args.NodeName))
+        {
+            // The copilot is not offered in the Library section, so it rarely has a key: the editor's
+            // name for the node is looked up, and anything but a single match goes back to the editor.
+            var lookup = await itemNames.ResolveAsync(args.NodeName);
+            if (lookup.NodeKey is null)
+            {
+                return (object?)lookup.Candidates ?? new AccessError(lookup.Error ?? "That Library item or folder could not be found.");
+            }
+
+            args = args with { NodeKey = lookup.NodeKey };
+        }
+
         if (args.NodeKey is not { } nodeKey)
         {
-            return new AccessError("A nodeKey is required to explain permissions on a library item or folder.");
+            return new AccessError("A nodeKey or nodeName is required to explain permissions on a library item or folder.");
         }
 
         var path = treeResolver.GetPathFromRoot(nodeKey);
@@ -209,13 +262,18 @@ public sealed class ExplainLibraryAccessTool(
             var single = await permissions.ResolveAsync(userKey, nodeKey, path, args.Permission, cancellationToken);
             var verdict = Format(await _presenter.ToVerdictAsync(single, cancellationToken), args.ResponseFormat)
                 with { Ancestors = BuildAncestors(nodeKey, path) };
+            if (await startNodeReach.ForUserAsync(userKey, nodeKey, PermissionDomain.Library) is { } blocked)
+            {
+                return Block(verdict, blocked);
+            }
+
             var roleAliases = await GetUserRoleAliasesAsync(userKey);
             return await AttachRemediationAsync(verdict, single, args, nodeKey, path, roleAliases, cancellationToken);
         }
 
         var all = await permissions.ResolveAllAsync(userKey, nodeKey, path, null, cancellationToken);
         return Format(
-            await ToExplanationAsync(all, nodeKey, path, kind, cancellationToken),
+            await ToExplanationAsync(all, nodeKey, path, kind, await startNodeReach.ForUserAsync(userKey, nodeKey, PermissionDomain.Library), cancellationToken),
             args.ResponseFormat);
     }
 
@@ -250,10 +308,16 @@ public sealed class ExplainLibraryAccessTool(
         var verbs = string.IsNullOrWhiteSpace(args.Permission) ? null : new[] { args.Permission };
         var resolved = await permissions.ResolveForRoleAsync(args.UserGroupAlias, nodeKey, path, verbs, cancellationToken);
 
+        var reach = await startNodeReach.ForUserGroupAsync(args.UserGroupAlias, nodeKey, PermissionDomain.Library);
+
         if (!string.IsNullOrWhiteSpace(args.Permission) && resolved.TryGetValue(args.Permission, out var single))
         {
             var verdict = Format(await _presenter.ToVerdictAsync(single, cancellationToken), args.ResponseFormat)
                 with { Ancestors = BuildAncestors(nodeKey, path) };
+            if (reach is not null)
+            {
+                return Block(verdict, reach);
+            }
 
             // Single-group resolution uses ONLY that group — $everyone is excluded, mirroring the base
             // package's ResolveForRoleAsync. The remediation must simulate with the same single-role set
@@ -262,7 +326,7 @@ public sealed class ExplainLibraryAccessTool(
             return await AttachRemediationAsync(verdict, single, args, nodeKey, path, roleAliases, cancellationToken);
         }
 
-        return Format(await ToExplanationAsync(resolved, nodeKey, path, kind, cancellationToken), args.ResponseFormat);
+        return Format(await ToExplanationAsync(resolved, nodeKey, path, kind, reach, cancellationToken), args.ResponseFormat);
     }
 
     /// <summary>
@@ -293,8 +357,8 @@ public sealed class ExplainLibraryAccessTool(
 
         var verbs = string.IsNullOrWhiteSpace(args.Permission) ? null : new[] { args.Permission };
 
-        // verb -> (allowed groups, denied groups), preserving first-seen verb order.
-        var rosters = new Dictionary<string, (List<string> Allowed, List<string> Denied)>(StringComparer.Ordinal);
+        // verb -> (allowed groups, denied groups, groups blocked by start nodes), preserving first-seen verb order.
+        var rosters = new Dictionary<string, (List<string> Allowed, List<string> Denied, List<string> Blocked)>(StringComparer.Ordinal);
         var verbOrder = new List<string>();
 
         foreach (var roleAlias in await GetRoleAliasesAsync())
@@ -306,6 +370,10 @@ public sealed class ExplainLibraryAccessTool(
             }
 
             var displayName = await _presenter.GetRoleDisplayNameAsync(roleAlias, cancellationToken);
+
+            // A group whose own Library start node does not reach the node is flagged, but keeps its
+            // permission result: users combine the start nodes of all their groups.
+            var blocked = await startNodeReach.ForUserGroupAsync(roleAlias, nodeKey, PermissionDomain.Library) is not null;
             foreach (var permission in resolved.Values)
             {
                 // Inapplicable permissions are dropped from the roster entirely: listing every group as
@@ -317,12 +385,16 @@ public sealed class ExplainLibraryAccessTool(
 
                 if (!rosters.TryGetValue(permission.Verb, out var bucket))
                 {
-                    bucket = (new List<string>(), new List<string>());
+                    bucket = (new List<string>(), new List<string>(), new List<string>());
                     rosters[permission.Verb] = bucket;
                     verbOrder.Add(permission.Verb);
                 }
 
                 (permission.IsAllowed ? bucket.Allowed : bucket.Denied).Add(displayName);
+                if (blocked)
+                {
+                    bucket.Blocked.Add(displayName);
+                }
             }
         }
 
@@ -331,7 +403,9 @@ public sealed class ExplainLibraryAccessTool(
                 _presenter.GetVerbDisplayName(verb),
                 node,
                 rosters[verb].Allowed,
-                rosters[verb].Denied))
+                rosters[verb].Denied,
+                rosters[verb].Blocked.Count > 0 ? rosters[verb].Blocked : null,
+                rosters[verb].Blocked.Count > 0 ? StartNodeReach.RosterNote : null))
             .ToList();
 
         if (!string.IsNullOrWhiteSpace(args.Permission))
@@ -352,6 +426,7 @@ public sealed class ExplainLibraryAccessTool(
     /// <param name="nodeKey">The Library item or folder.</param>
     /// <param name="path">The resolved root-to-node key path.</param>
     /// <param name="kind">Whether the node is an item or a folder.</param>
+    /// <param name="reach">Why Library start nodes block the subject, or null when they do not; applicable verdicts are then blocked.</param>
     /// <param name="cancellationToken">Token to support cancellation.</param>
     /// <returns>The friendly explanation.</returns>
     private async Task<AccessExplanation> ToExplanationAsync(
@@ -359,19 +434,43 @@ public sealed class ExplainLibraryAccessTool(
         Guid nodeKey,
         IReadOnlyList<Guid> path,
         LibraryNodeKind kind,
+        StartNodeReach? reach,
         CancellationToken cancellationToken)
     {
         var verdicts = new List<AccessVerdict>(resolved.Count);
         foreach (var permission in resolved.Values)
         {
-            verdicts.Add(
-                LibraryVerbApplicability.Applies(permission.Verb, kind)
-                    ? await _presenter.ToVerdictAsync(permission, cancellationToken)
-                    : _presenter.ToNotApplicableVerdict(permission.Verb));
+            // N/A wins over blocked: a permission that never applies to this kind of node stays N/A even
+            // outside the start nodes, exactly as the Library Access Viewer shows it.
+            if (!LibraryVerbApplicability.Applies(permission.Verb, kind))
+            {
+                verdicts.Add(_presenter.ToNotApplicableVerdict(permission.Verb));
+                continue;
+            }
+
+            var verdict = await _presenter.ToVerdictAsync(permission, cancellationToken);
+            verdicts.Add(reach is null ? verdict : Block(verdict, reach: null));
         }
 
-        return new AccessExplanation(_presenter.GetNodeName(nodeKey), verdicts, BuildAncestors(nodeKey, path));
+        return new AccessExplanation(_presenter.GetNodeName(nodeKey), verdicts, BuildAncestors(nodeKey, path), reach);
     }
+
+    /// <summary>
+    /// Marks a verdict as blocked by Library start nodes: the result becomes "Blocked (start nodes)", the
+    /// permission-only result moves to <see cref="AccessVerdict.IfInsideStartNodes"/>, and any fix is
+    /// dropped — no permission entry can change a start-node block.
+    /// </summary>
+    /// <param name="verdict">The permission-only verdict.</param>
+    /// <param name="reach">Why start nodes block the subject; <see langword="null"/> when nested inside an explanation that carries it.</param>
+    /// <returns>The blocked verdict.</returns>
+    private static AccessVerdict Block(AccessVerdict verdict, StartNodeReach? reach) =>
+        verdict with
+        {
+            Result = StartNodeReach.BlockedResult,
+            IfInsideStartNodes = verdict.Result,
+            StartNodes = reach,
+            Remediations = null,
+        };
 
     // ----------------------------------------------------------------------------------------------
     // Element-type create aspect: which element types may be created in the Library.
@@ -400,7 +499,10 @@ public sealed class ExplainLibraryAccessTool(
             ExplainSubject.UserGroup => string.IsNullOrWhiteSpace(args.UserGroupAlias)
                 ? new AccessError("A userGroupAlias is required when explaining access for a single user group.")
                 : await ElementTypeCreateForRolesAsync(
-                    [args.UserGroupAlias, AdvancedPermissionsConstants.EveryoneRoleAlias], args, cancellationToken),
+                    [args.UserGroupAlias, AdvancedPermissionsConstants.EveryoneRoleAlias],
+                    args,
+                    await startNodeReach.ForLibraryCreateAsync(null, args.UserGroupAlias),
+                    cancellationToken),
             ExplainSubject.AllUserGroups => await ElementTypeCreateAllRolesAsync(args, cancellationToken),
             _ => new AccessError("Unknown subject."),
         };
@@ -418,7 +520,8 @@ public sealed class ExplainLibraryAccessTool(
         var roleAliases = await GetUserRoleAliasesAsync(userKey);
         return roleAliases.Count == 0
             ? new AccessError("Could not resolve that user's user groups.")
-            : await ElementTypeCreateForRolesAsync(roleAliases, args, cancellationToken);
+            : await ElementTypeCreateForRolesAsync(
+                roleAliases, args, await startNodeReach.ForLibraryCreateAsync(userKey, null), cancellationToken);
     }
 
     /// <summary>
@@ -427,27 +530,40 @@ public sealed class ExplainLibraryAccessTool(
     /// </summary>
     /// <param name="roleAliases">The role set to resolve with (the caller includes <c>$everyone</c> where appropriate).</param>
     /// <param name="args">The tool arguments.</param>
+    /// <param name="reach">Why the subject cannot reach the Library at all, or null when it can; every type is then blocked.</param>
     /// <param name="cancellationToken">Token to support cancellation.</param>
     /// <returns>An <see cref="ElementTypeCreateVerdict"/> or <see cref="ElementTypeCreateExplanation"/>.</returns>
     private async Task<object> ElementTypeCreateForRolesAsync(
         IReadOnlyList<string> roleAliases,
         ExplainLibraryAccessArgs args,
+        StartNodeReach? reach,
         CancellationToken cancellationToken)
     {
         if (args.ElementTypeKey is { } focused)
         {
-            return await ToElementTypeVerdictAsync(focused, roleAliases, cancellationToken);
+            var verdict = await ToElementTypeVerdictAsync(focused, roleAliases, cancellationToken);
+            return reach is null ? verdict : BlockElementType(verdict) with { StartNodes = reach };
         }
 
         var candidates = elementTypes.GetLibraryElementTypes();
         var verdicts = new List<ElementTypeCreateVerdict>(candidates.Count);
         foreach (var candidate in candidates)
         {
-            verdicts.Add(await ToElementTypeVerdictAsync(candidate.Key, roleAliases, cancellationToken));
+            var verdict = await ToElementTypeVerdictAsync(candidate.Key, roleAliases, cancellationToken);
+            verdicts.Add(reach is null ? verdict : BlockElementType(verdict));
         }
 
-        return new ElementTypeCreateExplanation(verdicts);
+        return new ElementTypeCreateExplanation(verdicts, reach);
     }
+
+    /// <summary>
+    /// Marks an element-type verdict as blocked because the subject has no Library start node at all, so
+    /// it cannot create anything in the Library whatever the create filter says.
+    /// </summary>
+    /// <param name="verdict">The filter-only verdict.</param>
+    /// <returns>The blocked verdict, with the filter-only result kept in <see cref="ElementTypeCreateVerdict.IfInsideStartNodes"/>.</returns>
+    private static ElementTypeCreateVerdict BlockElementType(ElementTypeCreateVerdict verdict) =>
+        verdict with { Result = StartNodeReach.BlockedResult, IfInsideStartNodes = verdict.Result };
 
     /// <summary>Resolves and presents one element type's create verdict for a role set.</summary>
     /// <param name="elementTypeKey">The element type to evaluate.</param>
@@ -495,9 +611,17 @@ public sealed class ExplainLibraryAccessTool(
 
         var roleAliases = await GetRoleAliasesAsync();
         var displayNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        var blockedAliases = new HashSet<string>(StringComparer.Ordinal);
         foreach (var alias in roleAliases)
         {
             displayNames[alias] = await _presenter.GetRoleDisplayNameAsync(alias, cancellationToken);
+
+            // A group with no Library start node gives no Library access on its own; it is flagged, and
+            // still resolved, because members may reach the Library through another group.
+            if (await startNodeReach.ForLibraryCreateAsync(null, alias) is not null)
+            {
+                blockedAliases.Add(alias);
+            }
         }
 
         var rosters = new List<ElementTypeCreateRoster>(candidates.Length);
@@ -505,9 +629,15 @@ public sealed class ExplainLibraryAccessTool(
         {
             var allowed = new List<string>();
             var denied = new List<string>();
+            var blocked = new List<string>();
 
             foreach (var alias in roleAliases)
             {
+                if (blockedAliases.Contains(alias))
+                {
+                    blocked.Add(displayNames[alias]);
+                }
+
                 // Resolve per group with just that group + $everyone, matching the single-group semantics
                 // used elsewhere; $everyone alone for the All Users group itself.
                 IReadOnlyList<string> roles = alias == AdvancedPermissionsConstants.EveryoneRoleAlias
@@ -525,7 +655,11 @@ public sealed class ExplainLibraryAccessTool(
             }
 
             rosters.Add(new ElementTypeCreateRoster(
-                _presenter.GetContentTypeName(elementTypeKey), allowed, denied));
+                _presenter.GetContentTypeName(elementTypeKey),
+                allowed,
+                denied,
+                blocked.Count > 0 ? blocked : null,
+                blocked.Count > 0 ? StartNodeReach.RosterNote : null));
         }
 
         return args.ElementTypeKey is not null && rosters.Count == 1

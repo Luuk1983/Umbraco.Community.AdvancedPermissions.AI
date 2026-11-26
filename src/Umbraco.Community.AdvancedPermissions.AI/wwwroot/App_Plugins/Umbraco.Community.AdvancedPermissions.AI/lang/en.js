@@ -31,7 +31,7 @@ export default {
       "Scan a user group's, a subtree's, or the whole site's permission setup for risks and conflicts, in the content tree or the Library.",
     uapExplainConceptsLabel: 'Explain permission concepts',
     uapExplainConceptsDescription:
-      'Explain how this site’s permissions work — Allow/Deny entries, precedence, scopes, inheritance, Priority Override, and the create filters.',
+      'Explain how this site’s permissions work — Allow/Deny entries, precedence, scopes, inheritance, Priority Override, the create filters, and start nodes.',
     uapExplainEditorsLabel: 'Explain the permission editors',
     uapExplainEditorsDescription:
       'Explain which of the permission editors and viewers to use for a given question, how they differ, and where to find them in the backoffice.',

@@ -24,7 +24,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
 /// </para>
 /// <para>
 /// Every string is sourced from the base package's own <c>help-docs/en/*.md</c> and
-/// <c>localization/en.ts</c> (verified against the released <c>v18.1.0</c> tag), never invented — the
+/// <c>localization/en.ts</c> (verified against <c>origin/v18/main</c> at the released <c>v18.3.0</c> tag), never invented — the
 /// same rule the grounding and the scope strings follow. Like the concepts tool it takes no arguments and
 /// does no I/O, so the answer is the same every time and its cost is paid only when asked.
 /// </para>
@@ -51,7 +51,10 @@ public sealed class ExplainEditorsTool : AIToolBase<ExplainEditorsArgs>
             "that access is denied. An ACCESS VIEWER shows what a chosen subject — a user OR a user group " +
             "— EFFECTIVELY gets: fully resolved, combined across every group the user belongs to " +
             "(including the All Users group), with the reasoning chain behind each result, and it shows " +
-            "what the outcome would have been without a Priority Override when one changed it. A viewer is " +
+            "what the outcome would have been without a Priority Override when one changed it. A viewer also " +
+            "applies start nodes, so a cell can be 'Blocked (start nodes)' — neither an Allow nor a Deny, and " +
+            "not something any editor can change, because start nodes are set on the user group or user " +
+            "account in the Users section. A viewer is " +
             "strictly read-only: it explains, it never changes anything. So: 'what " +
             "has been configured for Editors?' is an editor question; 'why can't this particular person " +
             "publish?' is a viewer question. Pick a viewer whenever the question is about a person, or " +
@@ -103,7 +106,14 @@ public sealed class ExplainEditorsTool : AIToolBase<ExplainEditorsArgs>
                     "group contributed, from which node, explicitly or inherited.",
                 NotThis:
                     "Read-only: nothing can be changed here. To make the change, use the Content " +
-                    "Permissions Editor. For document-type creation, use the Document Type Access Viewer.",
+                    "Permissions Editor. For document-type creation, use the Document Type Access Viewer. " +
+                    "The viewer also applies the subject's start nodes, which Umbraco checks before any " +
+                    "permission: a node outside them shows a blocked cell — 'Browse only (start nodes)' " +
+                    "or 'Not visible (start nodes)' — instead of allow or deny, the start-node card under " +
+                    "the picker lists the start nodes in effect and who set them, and clicking a blocked " +
+                    "cell shows what the permissions would be inside a start node. With a user group " +
+                    "selected it uses that group's own start node; users combine the start nodes of all " +
+                    "their groups, so pick a user for the real result.",
                 Navigation: "Users section → Content Permissions → Access Viewer"),
 
             new EditorSurface(
@@ -136,6 +146,9 @@ public sealed class ExplainEditorsTool : AIToolBase<ExplainEditorsArgs>
                     "Access Viewer. Also, a dimmed or N/A cell means the type is not an allowed child of " +
                     "that node in Umbraco's own configuration, so it would not be offered there regardless " +
                     "of permissions — that is not a Deny entry, and looking for one is a dead end. " +
+                    "Creating under a node needs access to that node, so rows under a node outside the " +
+                    "subject's start nodes are blocked — again not a Deny entry; the start-node card under " +
+                    "the picker shows which start nodes apply and who set them. " +
                     "Sometimes still called the Insert Options Viewer.",
                 Navigation: "Users section → Document Type Permissions → Access Viewer"),
 
@@ -168,7 +181,11 @@ public sealed class ExplainEditorsTool : AIToolBase<ExplainEditorsArgs>
                     "hatched N/A cell means the permission has no meaning for that kind of node: Create on " +
                     "a single item (an item cannot contain other items), or the item-only actions " +
                     "(Publish, Unpublish, Duplicate, Rollback) on a folder, which apply to the items " +
-                    "inside it rather than to the folder itself.",
+                    "inside it rather than to the folder itself. It also applies the subject's Library " +
+                    "start nodes: a folder or item outside them shows a blocked cell ('Browse only (start " +
+                    "nodes)' or 'Not visible (start nodes)') instead of allow or deny, with a start-node card " +
+                    "listing who set them — but permissions that never apply to that kind of node stay N/A " +
+                    "even then.",
                 Navigation: "Users section → Library Permissions → Access Viewer"),
 
             new EditorSurface(
@@ -201,7 +218,10 @@ public sealed class ExplainEditorsTool : AIToolBase<ExplainEditorsArgs>
                     "Read-only, section-wide (a flat list, no tree), and about CREATING element types " +
                     "only — not about what may be done to existing Library items, which is the Library " +
                     "Access Viewer. Creating is allowed by default, so a type with no entries anywhere " +
-                    "shows as allowed. Sometimes still called the Library Insert Viewer.",
+                    "shows as allowed — but only for a subject that can reach the Library: one without any " +
+                    "Library start node gets blocked rows (every group but Administrators, right after an " +
+                    "upgrade to Umbraco 18), and one with Library start nodes can only create inside them. " +
+                    "Sometimes still called the Library Insert Viewer.",
                 Navigation: "Users section → Library Element Type Permissions → Access Viewer"),
         ],
 

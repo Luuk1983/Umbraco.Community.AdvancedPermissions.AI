@@ -151,7 +151,7 @@ public sealed class PermissionPresenterTests
     {
         var sut = CreateSut();
         Assert.Equal(
-            "All content (root-level default)",
+            "Default permissions",
             sut.GetNodeName(AdvancedPermissionsConstants.VirtualRootNodeKey));
     }
 
@@ -235,7 +235,7 @@ public sealed class PermissionPresenterTests
         Assert.Equal("All Users", second.UserGroup);
         Assert.Equal("Allowed", second.Decision);
         Assert.Equal("This node and descendants (the node and everything beneath it)", second.Scope);
-        Assert.Equal("All content (root-level default)", second.SetOn);
+        Assert.Equal("Default permissions", second.SetOn);
         Assert.True(second.Inherited);
         Assert.False(second.PriorityOverride);
     }
@@ -310,7 +310,7 @@ public sealed class PermissionPresenterTests
         Assert.Equal("Risk", first.Severity);
         Assert.Equal("All Users", first.UserGroup);
         Assert.Equal("Update", first.Permission);
-        Assert.Equal("All content (root-level default)", first.Node);
+        Assert.Equal("Default permissions", first.Node);
 
         var second = friendly.Findings[1];
         Assert.Equal("Warning", second.Severity);

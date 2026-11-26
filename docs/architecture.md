@@ -21,6 +21,9 @@ flowchart TB
     subgraph AIPkg["This package: Umbraco.Community.AdvancedPermissions.AI"]
         Tools["5 AITool classes: uap_explain_access (content; subject = current-user / user / user-group / all-user-groups; aspect = node / type-create), uap_explain_library_access (Library; aspect = node / element-type-create), uap_audit_permissions (domain = content / library / library-element-types), uap_explain_concepts, uap_explain_editors"]
         ReadScope["AIToolScope: advanced-permissions:read"]
+        Guard["PermissionLookupGuard: Users-section gate for lookups of others"]
+        Reach["StartNodeReachResolver: start-node blocks, over the base IStartNodeAccessService"]
+        Names["UserGroupNameResolver + LibraryItemNameResolver: the names editors use, mapped to aliases and keys"]
         Path["ContentPathResolver"]
         Audit["PermissionAuditAnalyzer"]
         Ground["AdvancedPermissionsGroundingContributor: always-on style + read-only stance, plus a document-only half"]
@@ -29,6 +32,7 @@ flowchart TB
 
     subgraph CorePkg["Existing AdvancedPermissions package (unchanged)"]
         Svc["IAdvancedPermissionService"]
+        StartSvc["IStartNodeAccessService (18.3.0+)"]
         Resv["IPermissionResolver (+ reasoning chain)"]
         Repo["IAdvancedPermissionRepository"]
     end
@@ -45,6 +49,9 @@ flowchart TB
     Tools -->|resolve| Svc
     Tools -->|build node path| Path
     Tools -->|audit only| Audit
+    Tools -->|others? audit?| Guard
+    Tools -->|blocked by start nodes?| Reach
+    Reach --> StartSvc
     Path --> Svc
     Audit --> Repo
     Svc --> Resv
@@ -56,8 +63,12 @@ flowchart TB
 
 - Umbraco AI, at the top, provides the copilot chat, the agent runtime and the LLM connection.
 - This package, in the middle, adds five auto-discovered `[AITool]` classes, a read-only tool scope,
-  helper services (`ContentPathResolver`, `PermissionAuditAnalyzer`, `PermissionPresenter`) and a
-  runtime-context contributor that grounds the copilot.
+  helper services (`ContentPathResolver`, `PermissionAuditAnalyzer`, `PermissionPresenter`,
+  `StartNodeReachResolver`, `PermissionLookupGuard`, and the two name resolvers that turn a user group's
+  or Library node's name into its alias or key) and a runtime-context contributor that grounds the
+  copilot. Start nodes are applied here, not by the base resolvers: the resolvers answer from entries
+  alone, while Umbraco checks start nodes first, so a node outside them is reported "Blocked (start
+  nodes)".
 - The base permission package, at the bottom, is unchanged. The tools simply call its
   `IAdvancedPermissionService`.
 

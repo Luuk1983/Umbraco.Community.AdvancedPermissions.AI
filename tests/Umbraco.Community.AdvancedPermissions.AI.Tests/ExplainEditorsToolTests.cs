@@ -242,4 +242,42 @@ public sealed class ExplainEditorsToolTests
         Assert.DoesNotContain("$everyone", json, StringComparison.Ordinal);
         Assert.DoesNotContain("element-folder", json, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// All four viewers now show start nodes (base <c>access-viewer.md</c>, <c>library-access-viewer.md</c>,
+    /// <c>insert-options-viewer.md</c>, <c>library-insert-viewer.md</c>): a blocked cell or row is neither
+    /// allowed nor denied, so each viewer surface has to say so.
+    /// </summary>
+    /// <param name="name">A viewer surface.</param>
+    [Theory]
+    [InlineData("Content Access Viewer")]
+    [InlineData("Document Type Access Viewer")]
+    [InlineData("Library Access Viewer")]
+    [InlineData("Library Element Type Access Viewer")]
+    public async Task ViewerSurfaces_MentionStartNodeBlocks(string name)
+    {
+        var surface = Assert.Single((await GetGuideAsync()).Surfaces, s => s.Name == name);
+        var text = surface.Purpose + " " + surface.UseWhen + " " + surface.NotThis;
+
+        Assert.Contains("start node", text, StringComparison.Ordinal);
+        Assert.Contains("blocked", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>On the Library Access Viewer, a permission that never applies stays N/A even when blocked.</summary>
+    [Fact]
+    public async Task LibraryAccessViewer_NotApplicableWinsOverBlocked()
+    {
+        var surface = Assert.Single((await GetGuideAsync()).Surfaces, s => s.Name == "Library Access Viewer");
+
+        Assert.Contains("stay N/A", surface.NotThis, StringComparison.Ordinal);
+    }
+
+    /// <summary>The editor-versus-viewer contrast says a blocked viewer cell is neither an Allow nor a Deny.</summary>
+    [Fact]
+    public async Task EditorVersusViewer_ExplainsBlockedCells()
+    {
+        var guide = await GetGuideAsync();
+
+        Assert.Contains("Blocked (start nodes)", guide.EditorVersusViewer, StringComparison.Ordinal);
+    }
 }

@@ -32,6 +32,8 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
 /// <param name="entityService">The Umbraco entity service used to resolve the parent node's content type for the structural allowed-children check.</param>
 /// <param name="remediation">The remediation service used to compute confirmed denial-to-allow changes when <see cref="ExplainAccessArgs.SuggestFix"/> is set.</param>
 /// <param name="userService">The Umbraco user service used to resolve a user's group memberships when building the remediation role set for the user/current-user subjects.</param>
+/// <param name="lookupGuard">Refuses lookups of anyone other than the asker unless the asker has Users-section access.</param>
+/// <param name="startNodeReach">Works out whether the subject's start nodes block it from the node, which Umbraco checks before any permission.</param>
 [AITool("uap_explain_access", "Explain access", ScopeId = "advanced-permissions:read")]
 public sealed class ExplainAccessTool(
     IAdvancedPermissionService permissions,
@@ -43,11 +45,19 @@ public sealed class ExplainAccessTool(
     IContentTypeService contentTypeService,
     IEntityService entityService,
     IPermissionRemediationService remediation,
-    IUserService userService)
+    IUserService userService,
+    IPermissionLookupGuard lookupGuard,
+    IStartNodeReachResolver startNodeReach)
     : AIToolBase<ExplainAccessArgs>
 {
     /// <summary>The page size used when enumerating user groups, mirroring the roles metadata endpoint.</summary>
     private const int PageSize = 100;
+
+    /// <summary>
+    /// Maps the user group the model names — usually by display name, which is all it ever sees — to the
+    /// real alias, so an unknown alias is never silently resolved as a group with no entries.
+    /// </summary>
+    private readonly UserGroupNameResolver _userGroupNames = new(userGroupService);
 
     /// <inheritdoc />
     public override string Description =>
@@ -58,13 +68,18 @@ public sealed class ExplainAccessTool(
         "Call this FIRST whenever someone can't perform an action or the editor looks restricted: " +
         "fields read-only / can't save, can't trash/delete, Publish/Unpublish disabled, can't move/copy/sort/rollback, " +
         "can't set notifications / culture & hostnames / public access, or Create is missing. " +
-        "A Deny entry is a common, invisible cause — don't attribute a block to a structural reason " +
-        "(root node, content type) before checking this. " +
+        "A Deny entry or the user's start nodes are the common, invisible causes — check this before " +
+        "attributing a block to anything else. " +
+        "A `Blocked (start nodes)` result means Umbraco blocks the node before any permission is checked " +
+        "(`ifInsideStartNodes` is what the permissions alone would give); relay its `startNodes` and never " +
+        "suggest a permission entry as the fix. " +
         "Returns each permission's Allowed/Denied result with the reason (which user group and node, and whether the " +
         "entry is set directly on the node or inherited). " +
         "Set suggestFix=true (with a single verb, node aspect, and the `current-user`/`user`/`user-group` subject) to also get " +
         "the concrete, confirmed changes that would grant a denied permission — computed by simulating them against " +
         "the resolver, so do NOT guess fixes yourself (a plain Allow entry cannot beat a Deny entry on the same node). " +
+        "Looking up another user, a user group, or every user group needs access to the Users section " +
+        "(the base package's Access Viewer has the same rule); asking about your own access (`current-user`) never does. " +
         "This is READ-ONLY: it describes the entries a human must add in the backoffice Permissions Editor; it never " +
         "applies them, and you cannot apply or change permissions — never offer to. " +
         "Permissions are independent of publishing, so this works on any content node whether it is published, a " +
@@ -79,6 +94,22 @@ public sealed class ExplainAccessTool(
     /// <inheritdoc />
     protected override async Task<object> ExecuteAsync(ExplainAccessArgs args, CancellationToken cancellationToken = default)
     {
+        if (args.Subject != ExplainSubject.CurrentUser && !lookupGuard.CanInspectOthers())
+        {
+            return new AccessError(PermissionLookupGuard.OtherSubjectRefusal);
+        }
+
+        if (args.Subject == ExplainSubject.UserGroup && !string.IsNullOrWhiteSpace(args.UserGroupAlias))
+        {
+            var match = await _userGroupNames.ResolveAsync(args.UserGroupAlias);
+            if (match.Alias is null)
+            {
+                return new AccessError(match.Error!);
+            }
+
+            args = args with { UserGroupAlias = match.Alias };
+        }
+
         var path = pathResolver.GetPathFromRoot(args.NodeKey);
 
         return args.Aspect == ExplainAspect.TypeCreate
@@ -164,19 +195,28 @@ public sealed class ExplainAccessTool(
         IReadOnlyList<Guid> path,
         CancellationToken cancellationToken)
     {
+        var reach = await startNodeReach.ForUserAsync(userKey, args.NodeKey, PermissionDomain.Content);
+
         if (!string.IsNullOrWhiteSpace(args.Verb))
         {
             var single = await permissions.ResolveAsync(userKey, args.NodeKey, path, args.Verb, cancellationToken);
             var verdict = Format(await presenter.ToVerdictAsync(single, cancellationToken), args.ResponseFormat)
                 with { Ancestors = BuildAncestors(args.NodeKey, path) };
+            if (reach is not null)
+            {
+                return Block(verdict, reach);
+            }
+
             var roleAliases = await GetUserRoleAliasesAsync(userKey);
             return await AttachRemediationAsync(verdict, single, args, path, roleAliases, cancellationToken);
         }
 
         var all = await permissions.ResolveAllAsync(userKey, args.NodeKey, path, null, cancellationToken);
-        return Format(
-            await presenter.ToExplanationAsync(all, args.NodeKey, BuildAncestors(args.NodeKey, path), cancellationToken),
-            args.ResponseFormat);
+        return Block(
+            Format(
+                await presenter.ToExplanationAsync(all, args.NodeKey, BuildAncestors(args.NodeKey, path), cancellationToken),
+                args.ResponseFormat),
+            reach);
     }
 
     /// <summary>
@@ -199,11 +239,16 @@ public sealed class ExplainAccessTool(
 
         var verbs = string.IsNullOrWhiteSpace(args.Verb) ? null : new[] { args.Verb };
         var resolved = await permissions.ResolveForRoleAsync(args.UserGroupAlias, args.NodeKey, path, verbs, cancellationToken);
+        var reach = await startNodeReach.ForUserGroupAsync(args.UserGroupAlias, args.NodeKey, PermissionDomain.Content);
 
         if (!string.IsNullOrWhiteSpace(args.Verb) && resolved.TryGetValue(args.Verb, out var single))
         {
             var verdict = Format(await presenter.ToVerdictAsync(single, cancellationToken), args.ResponseFormat)
                 with { Ancestors = BuildAncestors(args.NodeKey, path) };
+            if (reach is not null)
+            {
+                return Block(verdict, reach);
+            }
 
             // Node-level role resolution uses ONLY the role itself — $everyone is excluded (mirrors
             // AdvancedPermissionService.ResolveForRoleAsync). The remediation must simulate with the same
@@ -212,9 +257,11 @@ public sealed class ExplainAccessTool(
             return await AttachRemediationAsync(verdict, single, args, path, roleAliases, cancellationToken);
         }
 
-        return Format(
-            await presenter.ToExplanationAsync(resolved, args.NodeKey, BuildAncestors(args.NodeKey, path), cancellationToken),
-            args.ResponseFormat);
+        return Block(
+            Format(
+                await presenter.ToExplanationAsync(resolved, args.NodeKey, BuildAncestors(args.NodeKey, path), cancellationToken),
+                args.ResponseFormat),
+            reach);
     }
 
     /// <summary>
@@ -247,8 +294,8 @@ public sealed class ExplainAccessTool(
         var verbs = string.IsNullOrWhiteSpace(args.Verb) ? null : new[] { args.Verb };
         var node = presenter.GetNodeName(args.NodeKey);
 
-        // verb -> (allowed roles, denied roles), preserving first-seen verb order.
-        var rosters = new Dictionary<string, (List<string> Allowed, List<string> Denied)>(StringComparer.Ordinal);
+        // verb -> (allowed roles, denied roles, roles blocked by start nodes), preserving first-seen verb order.
+        var rosters = new Dictionary<string, (List<string> Allowed, List<string> Denied, List<string> Blocked)>(StringComparer.Ordinal);
         var verbOrder = new List<string>();
 
         foreach (var roleAlias in await GetRoleAliasesAsync())
@@ -260,16 +307,25 @@ public sealed class ExplainAccessTool(
             }
 
             var displayName = await presenter.GetRoleDisplayNameAsync(roleAlias, cancellationToken);
+
+            // A group whose own start node does not reach the node is flagged, but keeps its permission
+            // result: users combine the start nodes of all their groups, so the group's permission still
+            // applies to members who reach the node another way.
+            var blocked = await startNodeReach.ForUserGroupAsync(roleAlias, args.NodeKey, PermissionDomain.Content) is not null;
             foreach (var permission in resolved.Values)
             {
                 if (!rosters.TryGetValue(permission.Verb, out var bucket))
                 {
-                    bucket = (new List<string>(), new List<string>());
+                    bucket = (new List<string>(), new List<string>(), new List<string>());
                     rosters[permission.Verb] = bucket;
                     verbOrder.Add(permission.Verb);
                 }
 
                 (permission.IsAllowed ? bucket.Allowed : bucket.Denied).Add(displayName);
+                if (blocked)
+                {
+                    bucket.Blocked.Add(displayName);
+                }
             }
         }
 
@@ -278,7 +334,9 @@ public sealed class ExplainAccessTool(
                 presenter.GetVerbDisplayName(verb),
                 node,
                 rosters[verb].Allowed,
-                rosters[verb].Denied))
+                rosters[verb].Denied,
+                rosters[verb].Blocked.Count > 0 ? rosters[verb].Blocked : null,
+                rosters[verb].Blocked.Count > 0 ? StartNodeReach.RosterNote : null))
             .ToList();
 
         // A focused verb yields exactly one roster — return it directly for a tighter answer.
@@ -342,6 +400,39 @@ public sealed class ExplainAccessTool(
         format == ExplainResponseFormat.Detailed
             ? explanation
             : explanation with { Permissions = explanation.Permissions.Select(v => Format(v, format)).ToList() };
+
+    /// <summary>
+    /// Marks a verdict as blocked by start nodes: the result becomes "Blocked (start nodes)", the
+    /// permission-only result moves to <see cref="AccessVerdict.IfInsideStartNodes"/>, and any fix is
+    /// dropped — no permission entry can change a start-node block.
+    /// </summary>
+    /// <param name="verdict">The permission-only verdict.</param>
+    /// <param name="reach">Why start nodes block the subject; <see langword="null"/> when nested inside an explanation that carries it.</param>
+    /// <returns>The blocked verdict.</returns>
+    private static AccessVerdict Block(AccessVerdict verdict, StartNodeReach? reach) =>
+        verdict with
+        {
+            Result = StartNodeReach.BlockedResult,
+            IfInsideStartNodes = verdict.Result,
+            StartNodes = reach,
+            Remediations = null,
+        };
+
+    /// <summary>
+    /// Marks every verdict of an explanation as blocked when start nodes block the subject, carrying the
+    /// reason once at the top; returns the explanation unchanged otherwise.
+    /// </summary>
+    /// <param name="explanation">The permission-only explanation.</param>
+    /// <param name="reach">Why start nodes block the subject, or <see langword="null"/> when they do not.</param>
+    /// <returns>The explanation, blocked or unchanged.</returns>
+    private static AccessExplanation Block(AccessExplanation explanation, StartNodeReach? reach) =>
+        reach is null
+            ? explanation
+            : explanation with
+            {
+                Permissions = explanation.Permissions.Select(v => Block(v, reach: null)).ToList(),
+                StartNodes = reach,
+            };
 
     // ----------------------------------------------------------------------------------------------
     // Remediation ("suggest fix"). Opt-in via ExplainAccessArgs.SuggestFix. Computed ONLY for a single
@@ -541,20 +632,25 @@ public sealed class ExplainAccessTool(
         ISet<Guid> allowedChildren,
         CancellationToken cancellationToken)
     {
+        // Creating under a node needs access to that node, so the parent is what start nodes are checked against.
+        var reach = await startNodeReach.ForUserAsync(userKey, args.NodeKey, PermissionDomain.Content);
+
         if (args.ContentTypeKey is { } focused)
         {
             var permission = await docTypePermissions.ResolveCreateAsync(userKey, args.NodeKey, path, focused, cancellationToken);
-            return await presenter.ToTypeCreateVerdictAsync(focused, permission, allowedChildren.Contains(focused), cancellationToken);
+            var verdict = await presenter.ToTypeCreateVerdictAsync(focused, permission, allowedChildren.Contains(focused), cancellationToken);
+            return BlockTypeCreate(verdict, allowedChildren.Contains(focused), reach, attachReach: true);
         }
 
         var verdicts = new List<TypeCreateVerdict>();
         foreach (var candidate in GetCandidateContentTypes())
         {
             var permission = await docTypePermissions.ResolveCreateAsync(userKey, args.NodeKey, path, candidate.Key, cancellationToken);
-            verdicts.Add(await presenter.ToTypeCreateVerdictAsync(candidate.Key, permission, allowedChildren.Contains(candidate.Key), cancellationToken));
+            var verdict = await presenter.ToTypeCreateVerdictAsync(candidate.Key, permission, allowedChildren.Contains(candidate.Key), cancellationToken);
+            verdicts.Add(BlockTypeCreate(verdict, allowedChildren.Contains(candidate.Key), reach, attachReach: false));
         }
 
-        return new TypeCreateExplanation(presenter.GetNodeName(args.NodeKey), verdicts);
+        return new TypeCreateExplanation(presenter.GetNodeName(args.NodeKey), verdicts, reach);
     }
 
     /// <summary>
@@ -579,20 +675,24 @@ public sealed class ExplainAccessTool(
 
         IReadOnlyList<string> roleAliases = [args.UserGroupAlias, AdvancedPermissionsConstants.EveryoneRoleAlias];
 
+        var reach = await startNodeReach.ForUserGroupAsync(args.UserGroupAlias, args.NodeKey, PermissionDomain.Content);
+
         if (args.ContentTypeKey is { } focused)
         {
             var permission = await docTypePermissions.ResolveCreateForRolesAsync(roleAliases, path, focused, AdvancedPermissionsConstants.VerbCreateOfType, cancellationToken);
-            return await presenter.ToTypeCreateVerdictAsync(focused, permission, allowedChildren.Contains(focused), cancellationToken);
+            var verdict = await presenter.ToTypeCreateVerdictAsync(focused, permission, allowedChildren.Contains(focused), cancellationToken);
+            return BlockTypeCreate(verdict, allowedChildren.Contains(focused), reach, attachReach: true);
         }
 
         var verdicts = new List<TypeCreateVerdict>();
         foreach (var candidate in GetCandidateContentTypes())
         {
             var permission = await docTypePermissions.ResolveCreateForRolesAsync(roleAliases, path, candidate.Key, AdvancedPermissionsConstants.VerbCreateOfType, cancellationToken);
-            verdicts.Add(await presenter.ToTypeCreateVerdictAsync(candidate.Key, permission, allowedChildren.Contains(candidate.Key), cancellationToken));
+            var verdict = await presenter.ToTypeCreateVerdictAsync(candidate.Key, permission, allowedChildren.Contains(candidate.Key), cancellationToken);
+            verdicts.Add(BlockTypeCreate(verdict, allowedChildren.Contains(candidate.Key), reach, attachReach: false));
         }
 
-        return new TypeCreateExplanation(presenter.GetNodeName(args.NodeKey), verdicts);
+        return new TypeCreateExplanation(presenter.GetNodeName(args.NodeKey), verdicts, reach);
     }
 
     /// <summary>
@@ -614,11 +714,17 @@ public sealed class ExplainAccessTool(
         var node = presenter.GetNodeName(args.NodeKey);
         var roleAliases = await GetRoleAliasesAsync();
 
-        // Precompute friendly role display names once.
+        // Precompute friendly role display names once, and which groups their own start node keeps away
+        // from the parent (creating under a node needs access to it, whatever the entries say).
         var displayNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        var blockedAliases = new HashSet<string>(StringComparer.Ordinal);
         foreach (var alias in roleAliases)
         {
             displayNames[alias] = await presenter.GetRoleDisplayNameAsync(alias, cancellationToken);
+            if (await startNodeReach.ForUserGroupAsync(alias, args.NodeKey, PermissionDomain.Content) is not null)
+            {
+                blockedAliases.Add(alias);
+            }
         }
 
         var candidates = args.ContentTypeKey is { } focused
@@ -638,8 +744,16 @@ public sealed class ExplainAccessTool(
 
             var allowed = new List<string>();
             var denied = new List<string>();
+            var blocked = new List<string>();
             foreach (var alias in roleAliases)
             {
+                // Flagged, but still resolved: the group's entries apply to members who reach the parent
+                // through another group's start node.
+                if (blockedAliases.Contains(alias))
+                {
+                    blocked.Add(displayNames[alias]);
+                }
+
                 // Resolve per role with just that role + $everyone, matching the single-role semantics.
                 IReadOnlyList<string> roles = alias == AdvancedPermissionsConstants.EveryoneRoleAlias
                     ? [AdvancedPermissionsConstants.EveryoneRoleAlias]
@@ -649,7 +763,14 @@ public sealed class ExplainAccessTool(
                 (permission.IsAllowed ? allowed : denied).Add(displayNames[alias]);
             }
 
-            rosters.Add(new TypeCreateRoster(name, node, IsApplicable: true, allowed, denied));
+            rosters.Add(new TypeCreateRoster(
+                name,
+                node,
+                IsApplicable: true,
+                allowed,
+                denied,
+                blocked.Count > 0 ? blocked : null,
+                blocked.Count > 0 ? StartNodeReach.RosterNote : null));
         }
 
         // A focused type yields exactly one roster — return it directly for a tighter answer.
@@ -657,6 +778,30 @@ public sealed class ExplainAccessTool(
             ? rosters[0]
             : new TypeCreateRosterReport(node, rosters);
     }
+
+    /// <summary>
+    /// Marks a type-create verdict as blocked by start nodes when they keep the subject away from the
+    /// parent. A type that is structurally not an allowed child stays "Not applicable": it could not be
+    /// created there even with access, so blocking it would hide the more fundamental reason.
+    /// </summary>
+    /// <param name="verdict">The permission-only verdict.</param>
+    /// <param name="isApplicable">Whether the type is an allowed child of the parent.</param>
+    /// <param name="reach">Why start nodes block the subject, or <see langword="null"/> when they do not.</param>
+    /// <param name="attachReach">Whether this verdict is the top-level result and so carries the reach itself.</param>
+    /// <returns>The verdict, blocked or unchanged.</returns>
+    private static TypeCreateVerdict BlockTypeCreate(
+        TypeCreateVerdict verdict,
+        bool isApplicable,
+        StartNodeReach? reach,
+        bool attachReach) =>
+        reach is null || !isApplicable
+            ? verdict
+            : verdict with
+            {
+                Result = StartNodeReach.BlockedResult,
+                IfInsideStartNodes = verdict.Result,
+                StartNodes = attachReach ? reach : null,
+            };
 
     /// <summary>
     /// Enumerates the candidate document types for the type-create aspect: every non-element content type,

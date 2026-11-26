@@ -39,7 +39,9 @@ public sealed class ToolDescriptionTerminologyTests
         Substitute.For<IContentTypeService>(),
         Substitute.For<IEntityService>(),
         Substitute.For<IPermissionRemediationService>(),
-        Substitute.For<IUserService>());
+        Substitute.For<IUserService>(),
+        Substitute.For<IPermissionLookupGuard>(),
+        Substitute.For<IStartNodeReachResolver>());
 
     /// <summary>Builds the Library explain tool with throwaway substitutes, purely to read its description.</summary>
     /// <returns>The tool.</returns>
@@ -52,7 +54,10 @@ public sealed class ToolDescriptionTerminologyTests
         Substitute.For<IDocTypePermissionService>(),
         Substitute.For<ILibraryElementTypeProvider>(),
         Substitute.For<IPermissionRemediationService>(),
-        Substitute.For<IUserService>());
+        Substitute.For<IUserService>(),
+        Substitute.For<IPermissionLookupGuard>(),
+        Substitute.For<IStartNodeReachResolver>(),
+        Substitute.For<ILibraryItemNameResolver>());
 
     /// <summary>Builds the audit tool with throwaway substitutes, purely to read its description.</summary>
     /// <returns>The tool.</returns>
@@ -64,7 +69,9 @@ public sealed class ToolDescriptionTerminologyTests
         Substitute.For<IPermissionPresenter>(),
         Substitute.For<IEntityService>(),
         Substitute.For<IElementTreeResolver>(),
-        Substitute.For<IUserGroupService>());
+        Substitute.For<IUserGroupService>(),
+        Substitute.For<IPermissionLookupGuard>(),
+        Substitute.For<IStartNodeReachResolver>());
 
     /// <summary>Every tool description the model sees, keyed by tool name.</summary>
     /// <returns>Tool name and description pairs.</returns>

@@ -19,7 +19,7 @@ export default {
       "Controleer de permissie-instellingen van een gebruikersgroep, een tak of de hele site op risico's en conflicten, in de inhoudsboom of de bibliotheek.",
     uapExplainConceptsLabel: 'Permissiebegrippen uitleggen',
     uapExplainConceptsDescription:
-      'Leg uit hoe de permissies van deze site werken — Allow/Deny-vermeldingen, voorrang, bereik, overerving, Priority Override, en de aanmaakfilters.',
+      'Leg uit hoe de permissies van deze site werken — Allow/Deny-vermeldingen, voorrang, bereik, overerving, Priority Override, de aanmaakfilters en startnodes.',
     uapExplainEditorsLabel: 'De permissie-editors uitleggen',
     uapExplainEditorsDescription:
       'Leg uit welke van de permissie-editors en -viewers je voor een bepaalde vraag gebruikt, hoe ze verschillen, en waar je ze vindt in de backoffice.',

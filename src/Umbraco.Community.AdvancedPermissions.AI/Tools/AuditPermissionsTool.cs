@@ -45,6 +45,11 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
 /// create-filter configuration. Those entries are keyed per user group, and the only complete way to
 /// gather them all is to ask for each group's entries in turn.
 /// </param>
+/// <param name="lookupGuard">Refuses the audit unless the asker has Users-section access, as the base package's audit endpoints do.</param>
+/// <param name="startNodeReach">
+/// Tells whether a user group has any Library start node, for the Library-only check that flags Library
+/// entries a group cannot benefit from.
+/// </param>
 [AITool("uap_audit_permissions", "Audit permissions", ScopeId = "advanced-permissions:read")]
 public sealed class AuditPermissionsTool(
     IAdvancedPermissionRepository repository,
@@ -54,7 +59,9 @@ public sealed class AuditPermissionsTool(
     IPermissionPresenter presenter,
     IEntityService entityService,
     IElementTreeResolver treeResolver,
-    IUserGroupService userGroupService)
+    IUserGroupService userGroupService,
+    IPermissionLookupGuard lookupGuard,
+    IStartNodeReachResolver startNodeReach)
     : AIToolBase<AuditPermissionsArgs>
 {
     /// <summary>The page size used when enumerating descendant document nodes.</summary>
@@ -69,6 +76,12 @@ public sealed class AuditPermissionsTool(
     /// </summary>
     private const int MaxFindings = 100;
 
+    /// <summary>
+    /// Maps the user group the model names — usually by display name, which is all it ever sees — to the
+    /// real alias, so an unknown alias is never silently resolved as a group with no entries.
+    /// </summary>
+    private readonly UserGroupNameResolver _userGroupNames = new(userGroupService);
+
     /// <inheritdoc />
     public override string Description =>
         "Scan stored permission configuration for risks and conflicts. Three checks run in every domain: an " +
@@ -78,6 +91,10 @@ public sealed class AuditPermissionsTool(
         "`library` it is All Users ALLOWED a write permission across the whole site from the root, and for " +
         "`document-types` and `library-element-types` it is All Users DENIED creating a type across the whole " +
         "site (an Allow there grants nothing, since a create filter can only narrow). " +
+        "In the `library` domain one more check runs: a user group with Library Allow entries but no Library " +
+        "start node, so on its own it gives no Library access and its entries only help members who reach the " +
+        "Library through another group — the usual state of every group except Administrators right after an " +
+        "upgrade to Umbraco 18. " +
         "That is the WHOLE rule set — a clean result means these checks found nothing, not that the " +
         "configuration was verified correct, so do not present it as a broader all-clear, and do not claim a " +
         "check that is not in this list. " +
@@ -96,12 +113,29 @@ public sealed class AuditPermissionsTool(
         "per node, so `scope=subtree` is not valid with it; the other three are per node and accept every scope. " +
         "A finding in either create-filter domain names the document type or element type it concerns — always " +
         "relay that, since a group can have entries for many types. " +
+        "Needs access to the Users section, like the base package's own viewers. " +
         "Note: `all` is best-effort — it sweeps every live node plus the root-level defaults, so entries " +
         "left behind on deleted/trashed nodes are not included.";
 
     /// <inheritdoc />
     protected override async Task<object> ExecuteAsync(AuditPermissionsArgs args, CancellationToken cancellationToken = default)
     {
+        if (!lookupGuard.CanInspectOthers())
+        {
+            return new AccessError(PermissionLookupGuard.AuditRefusal);
+        }
+
+        if (args.Scope == AuditScope.UserGroup && !string.IsNullOrWhiteSpace(args.UserGroupAlias))
+        {
+            var match = await _userGroupNames.ResolveAsync(args.UserGroupAlias);
+            if (match.Alias is null)
+            {
+                return new AccessError(match.Error!);
+            }
+
+            args = args with { UserGroupAlias = match.Alias };
+        }
+
         // The presenter needs a TREE so finding node names resolve correctly. The document-type filter is
         // keyed on content nodes, and the element-type filter's entries sit at the virtual root, so each
         // create-filter domain presents as the tree it belongs to.
@@ -140,9 +174,51 @@ public sealed class AuditPermissionsTool(
         CancellationToken cancellationToken)
     {
         var entriesResult = await LoadEntriesAsync(args, cancellationToken);
-        return entriesResult.Error is not null
-            ? (null, entriesResult.Error)
-            : (analyzer.Analyze(entriesResult.Entries!, args.Domain), null);
+        if (entriesResult.Error is not null)
+        {
+            return (null, entriesResult.Error);
+        }
+
+        var report = analyzer.Analyze(entriesResult.Entries!, args.Domain);
+        if (args.Domain != AuditDomain.Library)
+        {
+            return (report, null);
+        }
+
+        var startNodeFindings = await FindGroupsWithoutLibraryStartNodeAsync(entriesResult.Entries!);
+        return (startNodeFindings.Count == 0 ? report : report with { Findings = [.. report.Findings, .. startNodeFindings] }, null);
+    }
+
+    /// <summary>
+    /// Finds the user groups that hold Library Allow entries but have no Library start node at all. Umbraco
+    /// checks Library start nodes before any Library permission, so those entries grant nothing until the
+    /// group is given a Library start node — the state of every group except Administrators right after an
+    /// upgrade to Umbraco 18. The All Users group has no start nodes of its own and is never checked.
+    /// </summary>
+    /// <param name="entries">The Library entries being audited.</param>
+    /// <returns>One finding per affected user group.</returns>
+    private async Task<IReadOnlyList<AuditFinding>> FindGroupsWithoutLibraryStartNodeAsync(IReadOnlyList<AdvancedPermissionEntry> entries)
+    {
+        var findings = new List<AuditFinding>();
+        var aliases = entries
+            .Where(e => e.State == PermissionState.Allow
+                && !string.Equals(e.RoleAlias, AdvancedPermissionsConstants.EveryoneRoleAlias, StringComparison.OrdinalIgnoreCase))
+            .Select(e => e.RoleAlias)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var alias in aliases)
+        {
+            if (await startNodeReach.ForLibraryCreateAsync(null, alias) is not null)
+            {
+                findings.Add(new AuditFinding(
+                    "library-no-start-node",
+                    AuditSeverity.Warning,
+                    $"User group '{alias}' has Library Allow entries but no Library start node.",
+                    RoleAlias: alias));
+            }
+        }
+
+        return findings;
     }
 
     /// <summary>

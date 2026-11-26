@@ -11,12 +11,12 @@ maintained on the `v17/main` branch; `main` is v18.
 ## Guiding principle — where "how" comes from
 
 The **v18 `Umbraco.Community.AdvancedPermissions` repo** (`C:\GitHub\UmbracoAdvancedSecurity`,
-branch `main`) is the canonical reference for *how* to do things — csproj/MSBuild structure, workflows,
+branch **`v18/main`** — the base repo's `main` is now the Umbraco 19 line, so never read it for this package) is the canonical reference for *how* to do things — csproj/MSBuild structure, workflows,
 `Directory.Build.props`, `.editorconfig`, packaging conventions — **and** for what the
 product actually does, since every string this package shows an editor is sourced from it.
 
-**Read it via git, never the working tree.** `git -C C:/GitHub/UmbracoAdvancedSecurity show main:<path>`
-(or a tag such as `v18.1.0`). That clone's working tree has been observed holding a stale `manifests.ts`
+**Read it via git, never the working tree.** `git -C C:/GitHub/UmbracoAdvancedSecurity show origin/v18/main:<path>`
+(or a tag such as `v18.3.0`). That clone's working tree has been observed holding a stale `manifests.ts`
 that disagreed with `HEAD` — it showed 4 menu items where the released package has 8 — exactly the kind
 of thing that gets hard-coded into a grounding string and shipped wrong. Note also that the Bash tool's
 cwd resets between calls, so a relative-path grep can silently read the wrong repo.
@@ -35,9 +35,11 @@ No Core/Data/Client projects: the package has no persistence and no Vite/Lit fro
 
 ## Dependencies
 
-- **`Umbraco.Community.AdvancedPermissions`** (`[18.1.0,19.0.0)`) — the base package. The floor is
-  **18.1.0**, not 18.0.0: the Library APIs this package reads (`IElementNodePermissionService`,
-  `ElementVerbs`, `VerbElementCreateOfType`) start there. A real
+- **`Umbraco.Community.AdvancedPermissions`** (`[18.3.0,19.0.0)`) — the base package. The floor is
+  **18.3.0**: it is the first release that registers `IStartNodeAccessService` (main package,
+  namespace `Umbraco.Community.AdvancedPermissions.Services.StartNodes`, not Abstractions), which the
+  tools use to account for start nodes. The Library APIs (`IElementNodePermissionService`,
+  `ElementVerbs`, `VerbElementCreateOfType`) date from 18.1.0. A real
   runtime dependency: the tools resolve its services from DI. It flows `Abstractions` transitively,
   so the package compiles against the contract without a separate reference. **No direct
   `Umbraco.Cms.*` references** — they arrive transitively (the CMS floor is implicit; see below).
@@ -131,12 +133,56 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
   `uap_explain_access`, `uap_explain_library_access`, `uap_audit_permissions`, `uap_explain_concepts`,
   `uap_explain_editors`. The last one mirrors the base package's nine per-surface help docs the way
   `uap_explain_concepts` mirrors `concepts.md` — a split that follows the base package's own, since
-  `concepts.md` is byte-identical between the v17 and v18 lines while the per-surface docs went 5 → 9.
+  `concepts.md` is shared between the v17 and v18 lines (v18 adds only the Library start-node bullets)
+  while the per-surface docs went 5 → 9.
   Its content is ordered **boundaries-first** (how to choose, then the three contrast pairs, then the
   eight surfaces) because the failure to prevent is not "cannot describe a screen" but "confidently
   describes the wrong one of eight similarly-named screens". `EditorSurface.NotThis` is load-bearing:
   a test asserts every surface names *another* surface as the alternative. Keep it that way — do not let
   it decay into eight blurbs.
+- **Start nodes are applied by the tools, not by the resolver.** Umbraco checks start nodes *before* any
+  permission, but the base package's resolvers (`ResolveAsync`, `ResolveForRoleAsync`, `ResolveCreate*`)
+  answer from entries alone — the base applies start nodes only in its viewer controllers. So the explain
+  tools ask `IStartNodeReachResolver` (over the base's public `IStartNodeAccessService`, 18.3.0+) and, when
+  it returns a reach, report `Blocked (start nodes)` with the permission-only result in
+  `IfInsideStartNodes` and the reach in `StartNodes`. Rules worth keeping:
+  - A blocked answer **never carries a fix**: no permission entry can change a start-node block, so
+    `suggestFix` is skipped.
+  - **N/A wins over blocked** (Library), and **structurally "Not applicable" wins over blocked** (document
+    types), mirroring the viewers.
+  - **The All Users group is never blocked**, and an unknown subject or unreadable node path is never
+    claimed as blocked (`null` = not blocked *or* cannot tell).
+  - **Library creation is section-wide**: blocked only when the subject has no Library start node at all
+    (`ForLibraryCreateAsync`), which is every group but Administrators right after an upgrade to Umbraco 18.
+  - **A group's own start node is not the whole story.** Users combine the start nodes of all their groups,
+    and a permission from one group also applies inside a start node another group provides. So rosters
+    keep a flagged group in its allowed/denied list, ALSO list it in `BlockedUserGroups`, and attach
+    `StartNodeNote` (`StartNodeReach.RosterNote`); both are `null` when nobody is flagged, so unaffected
+    answers read exactly as before. Dropping the group's result instead was caught in review: it would
+    tell the copilot a "Publishers" group with no start node cannot publish, while every member can. The
+    `library-no-start-node` audit finding says "on its own" for the same reason — never "no effect".
+- **Lookups of others need the Users section.** The base gates its Access Viewer, by-role and audit
+  endpoints behind `SectionAccessUsers` so a user cannot inspect someone else's permissions; the tools call
+  the services directly, so `IPermissionLookupGuard` re-applies that gate. `current-user` is always allowed;
+  `user`, `user-group`, `all-user-groups` and the whole audit are refused without Users-section access.
+- **User group arguments are resolved by name, never trusted as an alias.** The model only ever sees user
+  groups by display name ("Writers"), so it passes that as `userGroupAlias`. The base package treats an
+  unknown alias as a group with no entries, so the call silently resolved as "nothing allows it" — and the
+  start-node check could not find the group either. Found in the live copilot check (2026-11-09): "why can't
+  Writers edit this page?" got a confident, wrong "they have no entries". `UserGroupNameResolver` maps an
+  alias or display name (case-insensitive; "All Users"/"everyone" → `$everyone`) to the real alias and
+  refuses anything else with the list of real groups. Every tool that takes a user group runs it first.
+- **Platform limit found in the live check (Umbraco.AI 18.3.1): no copilot in the Library section.** So the
+  Library half of the grounding never fires in practice, Library questions arrive from other sections, and
+  the model never has a Library node's key. It used to ask the editor for one (editors don't know keys);
+  `uap_explain_library_access` now takes `nodeName`, resolved by `LibraryItemNameResolver`.
+- **Library name lookup never guesses, and never leaks.** Exact name (case-insensitive) → that node;
+  several exact, or only similar names → `LibraryItemCandidates` (max 10, with kind and folder path) for
+  the model to put to the editor; nothing → `AccessError`. The search is Umbraco's
+  `IEntitySearchService.Search(IEnumerable<UmbracoObjectTypes>, query, …)` — the multi-type overload, safe
+  for `ElementContainer`; it includes trashed nodes, so they are filtered out. An asker without the Users
+  section only matches nodes their Library start nodes don't hide (`NotVisible`); browse-only folders above
+  a start node stay findable, and an unknown asker finds nothing.
 - **The model-visible type list is guarded.** `ToolSchemaTerminologyTests.ModelVisibleTypes_ListIsComplete`
   reflects over the models namespace and fails if a public type is neither terminology-checked nor
   explicitly excluded with a reason. Adding a returned type therefore forces a decision. This was added

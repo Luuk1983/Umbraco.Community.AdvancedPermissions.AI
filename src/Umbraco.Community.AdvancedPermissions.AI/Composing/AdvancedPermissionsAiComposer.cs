@@ -27,6 +27,9 @@ public sealed class AdvancedPermissionsAiComposer : IComposer
         // which is why one registration serves both trees.
         builder.Services.AddSingleton<IPermissionPresenter, PermissionPresenter>();
         builder.Services.AddSingleton<IPermissionRemediationService, PermissionRemediator>();
+        builder.Services.AddSingleton<IPermissionLookupGuard, PermissionLookupGuard>();
+        builder.Services.AddSingleton<IStartNodeReachResolver, StartNodeReachResolver>();
+        builder.Services.AddSingleton<ILibraryItemNameResolver, LibraryItemNameResolver>();
 
         // Append the grounding contributor after Umbraco AI's built-in contributors so the focused
         // entity's type is already in the context's data bag when ours reads it to gate on documents.

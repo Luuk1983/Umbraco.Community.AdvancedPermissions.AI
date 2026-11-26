@@ -40,15 +40,18 @@ public sealed class PermissionPresenter(
     /// </summary>
     private const string UnresolvedLibraryNodeLabel = "this library item";
 
-    /// <summary>The label used for the virtual-root sentinel node key in the content tree.</summary>
-    private const string VirtualRootLabel = "All content (root-level default)";
+    /// <summary>
+    /// The label used for the virtual-root sentinel node key in the content tree: the Permissions Editor's
+    /// own name for that row (base <c>en.ts</c> <c>contentRoot</c>), so an editor can find it on screen.
+    /// </summary>
+    private const string VirtualRootLabel = "Default permissions";
 
     /// <summary>
-    /// The label used for the virtual-root sentinel in the Library tree. It must name its own tree —
-    /// calling it "All content" while explaining a Library permission would simply be wrong, and it is
-    /// the Default permissions row of a different editor.
+    /// The label used for the virtual-root sentinel in the Library tree. The Library editor also calls it
+    /// "Default permissions" (<c>library_root</c>); the suffix keeps a Library answer from reading as if it
+    /// were about the content tree's baseline, which is the Default permissions row of a different editor.
     /// </summary>
-    private const string LibraryVirtualRootLabel = "All library items (root-level default)";
+    private const string LibraryVirtualRootLabel = "Default permissions (Library)";
 
     /// <summary>The generic label used when a content-type key cannot be resolved to a name.</summary>
     private const string UnresolvedContentTypeLabel = "this document type";
@@ -459,6 +462,11 @@ public sealed class PermissionPresenter(
         "everyone-broad-create-deny" =>
             $"The {role ?? "All Users"} group is denied creating {contentType ?? "this type"} anywhere, "
                 + "across the whole site — so nobody can create it at all.",
+        "library-no-start-node" =>
+            $"The {role ?? "relevant"} user group has Library Allow entries but no Library start node, so on its own "
+                + "it gives no Library access: its entries only take effect for members who reach the Library through "
+                + "another user group or their own start node. This is the usual state after an upgrade to Umbraco 18; "
+                + "give the group a Library start node in the Users section if its members should reach the Library through it.",
         "manage-permissions-descendants" =>
             $"The {role ?? "relevant"} user group can manage permissions on {node ?? "this node"} and all of its descendants.",
         "priority-override" =>
