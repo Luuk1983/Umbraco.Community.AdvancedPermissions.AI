@@ -53,6 +53,19 @@ public sealed class PermissionPresenter(
     /// </summary>
     private const string LibraryVirtualRootLabel = "Default permissions (Library)";
 
+    /// <summary>
+    /// The content tree's virtual root as it is named inside a sentence. The bare label names a row in the
+    /// editor, and dropped into prose it reads badly ("inherited from Default permissions"), so sentences
+    /// say "the Default permissions row"; fields that name the row itself keep <see cref="VirtualRootLabel"/>.
+    /// </summary>
+    private const string VirtualRootInSentence = "the Default permissions row";
+
+    /// <summary>
+    /// The Library's virtual root as it is named inside a sentence — the counterpart of
+    /// <see cref="VirtualRootInSentence"/>; fields keep <see cref="LibraryVirtualRootLabel"/>.
+    /// </summary>
+    private const string LibraryVirtualRootInSentence = "the Library's Default permissions row";
+
     /// <summary>The generic label used when a content-type key cannot be resolved to a name.</summary>
     private const string UnresolvedContentTypeLabel = "this document type";
 
@@ -280,6 +293,7 @@ public sealed class PermissionPresenter(
     {
         var permission = GetVerbDisplayName(option.Verb);
         var node = GetNodeName(option.NodeKey);
+        var nodeInSentence = GetNodeNameInSentence(option.NodeKey);
         var scope = option.Scope is { } s ? GetScopeText(s) : null;
 
         if (option.Kind == RemediationActionKind.RemoveDeny)
@@ -301,7 +315,7 @@ public sealed class PermissionPresenter(
 
             var removeDescription =
                 $"An administrator could remove the Deny entry on the {permission} permission for {GroupsText(roleNames)} " +
-                $"on {node}. {permission} would then be allowed" +
+                $"on {nodeInSentence}. {permission} would then be allowed" +
                 (grantedBy is null ? "." : $", because {grantedBy}.");
 
             return new AccessRemediation(
@@ -323,18 +337,18 @@ public sealed class PermissionPresenter(
             RemediationActionKind.AddPriorityOverrideAllow => (
                 "Override",
                 $"An administrator could add a Priority Override Allow entry on the {permission} permission for the " +
-                $"{addRole} user group on {node}{scopePhrase}. That would override the conflicting Deny entry " +
+                $"{addRole} user group on {nodeInSentence}{scopePhrase}. That would override the conflicting Deny entry " +
                 $"and allow {permission}.",
                 (string?)OverrideCaution),
             RemediationActionKind.AddAllowOnAncestor => (
                 "Add",
                 $"An administrator could add an Allow entry on the {permission} permission for the {addRole} user " +
-                $"group on {node}{scopePhrase}. {permission} would then be allowed here through inheritance.",
+                $"group on {nodeInSentence}{scopePhrase}. {permission} would then be allowed here through inheritance.",
                 null),
             _ => (
                 "Add",
                 $"An administrator could add an Allow entry on the {permission} permission for the {addRole} user " +
-                $"group on {node}{scopePhrase}. {permission} would then be allowed.",
+                $"group on {nodeInSentence}{scopePhrase}. {permission} would then be allowed.",
                 null),
         };
 
@@ -376,7 +390,7 @@ public sealed class PermissionPresenter(
             return $"{subject} is allowed {permission} by its group default";
         }
 
-        var source = GetNodeName(granted.SourceNodeKey);
+        var source = GetNodeNameInSentence(granted.SourceNodeKey);
         return granted.IsExplicit
             ? $"{subject} has an Allow entry on the {permission} permission set directly on {source}"
             : $"{subject} has an Allow entry on the {permission} permission inherited from {source}";
@@ -412,7 +426,13 @@ public sealed class PermissionPresenter(
             findings.Add(new FriendlyAuditFinding(
                 f.RuleId,
                 f.Severity.ToString(),
-                BuildFriendlyMessage(f.RuleId, role, action, node, contentType),
+                BuildFriendlyMessage(
+                    f.RuleId,
+                    role,
+                    action,
+                    f.NodeKey is null ? null : GetNodeNameInSentence(f.NodeKey.Value),
+                    contentType,
+                    library: domain == PermissionDomain.Library),
                 role,
                 action,
                 node,
@@ -449,19 +469,30 @@ public sealed class PermissionPresenter(
     /// The friendly document-type or element-type name, for create-filter findings. Without it a reader
     /// is told a group has a risky create entry with no way to tell which type it concerns.
     /// </param>
+    /// <param name="library">
+    /// Whether the finding is about the Library. Its element-type filter is one decision for the whole
+    /// Library, so a broad Deny there has no "further down" to be beaten from — only a Priority Override
+    /// outranks it — and a broad entry reaches the whole Library rather than the whole site.
+    /// </param>
     /// <returns>The friendly, identifier-free message.</returns>
     private static string BuildFriendlyMessage(
         string ruleId,
         string? role,
         string? action,
         string? node,
-        string? contentType = null) => ruleId switch
+        string? contentType = null,
+        bool library = false) => ruleId switch
     {
         "everyone-broad-write" =>
-            $"The {role ?? "All Users"} group is allowed to {Lower(action) ?? "perform this action"} across the whole site from {node ?? "the root"}.",
+            $"The {role ?? "All Users"} group is allowed to {Lower(action) ?? "perform this action"} across the whole "
+                + $"{(library ? "Library" : "site")} from {node ?? "the root"}.",
         "everyone-broad-create-deny" =>
-            $"The {role ?? "All Users"} group is denied creating {contentType ?? "this type"} anywhere, "
-                + "across the whole site — so nobody can create it at all.",
+            library
+                ? $"The {role ?? "All Users"} group is denied creating {contentType ?? "this element type"} in the "
+                    + "Library, so nobody can create it unless a Priority Override Allow entry outranks it."
+                : $"The {role ?? "All Users"} group is denied creating {contentType ?? "this document type"} across the "
+                    + "whole site, so nobody can create it unless a more specific Allow entry exists further down or "
+                    + "a Priority Override Allow entry outranks it.",
         "library-no-start-node" =>
             $"The {role ?? "relevant"} user group has Library Allow entries but no Library start node, so on its own "
                 + "it gives no Library access: its entries only take effect for members who reach the Library through "
@@ -482,6 +513,20 @@ public sealed class PermissionPresenter(
                 + (contentType is null ? string.Empty : $" on {contentType}")
                 + (node is null ? string.Empty : $" on {node}") + ".",
     };
+
+    /// <summary>
+    /// Names a node for use inside a sentence: the virtual root becomes <see cref="VirtualRootInSentence"/>
+    /// (or <see cref="LibraryVirtualRootInSentence"/> in the Library), every real node is named as
+    /// <see cref="GetNodeName"/> names it.
+    /// Decided on the key, not the name, so a real node that happens to be called "Default permissions"
+    /// keeps its own name.
+    /// </summary>
+    /// <param name="nodeKey">The node key; the virtual-root sentinel is the Default permissions row.</param>
+    /// <returns>The name to put in the sentence.</returns>
+    private string GetNodeNameInSentence(Guid nodeKey) =>
+        nodeKey != AdvancedPermissionsConstants.VirtualRootNodeKey
+            ? GetNodeName(nodeKey)
+            : domain == PermissionDomain.Library ? LibraryVirtualRootInSentence : VirtualRootInSentence;
 
     /// <summary>Lower-cases the first character of a friendly action for use mid-sentence.</summary>
     /// <param name="value">The value to lower-case, or <see langword="null"/>.</param>

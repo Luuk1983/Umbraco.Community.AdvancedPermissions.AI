@@ -91,4 +91,73 @@ public sealed class UserGroupNameResolverTests
             "There is no user group called 'Marketing'. The user groups are: All Users, Writers, Editors.",
             match.Error);
     }
+
+    /// <summary>A group beyond the first page is still found, so large sites are not misread.</summary>
+    [Fact]
+    public async Task SecondPage_IsSearched()
+    {
+        var firstPage = new PagedModel<IUserGroup>(101, Enumerable.Range(0, 100).Select(i => Group($"g{i}", $"Group {i}")).ToArray());
+        var secondPage = new PagedModel<IUserGroup>(101, new[] { Group("translators", "Translators") });
+        _userGroupService.GetAllAsync(0, 100).Returns(firstPage);
+        _userGroupService.GetAllAsync(100, 100).Returns(secondPage);
+
+        var match = await CreateResolver().ResolveAsync("Translators");
+
+        Assert.Equal("translators", match.Alias);
+    }
+
+    /// <summary>Replaces the registered groups with the given ones, on a single page.</summary>
+    /// <param name="groups">The groups.</param>
+    private void SetupGroups(params IUserGroup[] groups) =>
+        _userGroupService.GetAllAsync(Arg.Any<int>(), Arg.Any<int>())
+            .Returns(new PagedModel<IUserGroup>(groups.Length, groups));
+
+    /// <summary>
+    /// "everyone" is only a convenience shorthand for All Users. When the site has a real group called
+    /// "Everyone", that group wins — the shorthand must never hide a group that exists. All Users stays
+    /// reachable by its own name.
+    /// </summary>
+    /// <param name="alias">The real group's alias.</param>
+    /// <param name="name">The real group's display name.</param>
+    [Theory]
+    [InlineData("everyoneGroup", "Everyone")]
+    [InlineData("everyone", "Staff (everyone)")]
+    public async Task Everyone_WithARealGroupOfThatName_ResolvesToTheRealGroup(string alias, string name)
+    {
+        SetupGroups(Group("writer", "Writers"), Group(alias, name));
+
+        Assert.Equal(alias, (await CreateResolver().ResolveAsync("everyone")).Alias);
+        Assert.Equal(AdvancedPermissionsConstants.EveryoneRoleAlias, (await CreateResolver().ResolveAsync("All Users")).Alias);
+    }
+
+    /// <summary>
+    /// Two groups with the same display name are ambiguous. Picking the first one silently would answer
+    /// about the wrong group; the resolver refuses and lists the candidates with their aliases so the
+    /// model can ask which is meant, or pass the alias.
+    /// </summary>
+    [Fact]
+    public async Task DuplicateDisplayName_IsRefusedListingTheCandidates()
+    {
+        SetupGroups(Group("writer", "Writers"), Group("newsWriters", "Writers"), Group("editor", "Editors"));
+
+        var match = await CreateResolver().ResolveAsync("writers");
+
+        Assert.Null(match.Alias);
+        Assert.Equal(
+            "More than one user group is called 'writers': Writers (alias 'writer'), Writers (alias 'newsWriters'). " +
+            "Ask which one is meant, or pass its alias.",
+            match.Error);
+    }
+
+    /// <summary>
+    /// The alias is unique, so it settles an ambiguous display name — which is what the refusal above
+    /// tells the model to do.
+    /// </summary>
+    [Fact]
+    public async Task DuplicateDisplayName_AliasStillResolves()
+    {
+        SetupGroups(Group("writer", "Writers"), Group("newsWriters", "Writers"));
+
+        Assert.Equal("newsWriters", (await CreateResolver().ResolveAsync("newsWriters")).Alias);
+    }
 }

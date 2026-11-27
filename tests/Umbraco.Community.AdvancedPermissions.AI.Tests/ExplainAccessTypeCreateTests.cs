@@ -544,6 +544,36 @@ public sealed class ExplainAccessTypeCreateTests
         Assert.Contains("All Users", roster.AllowedUserGroups);
     }
 
+    /// <summary>
+    /// A group with no start node at all is listed apart from the blocked groups, with its own shorter
+    /// note, in the type-create roster as in the permission roster.
+    /// </summary>
+    [Fact]
+    public async Task Roster_GroupWithNoStartNode_GetsItsOwnShorterNote()
+    {
+        var nodeKey = Guid.NewGuid();
+        var article = Guid.NewGuid();
+        var path = new[] { nodeKey };
+        SetupParentAllowing(nodeKey, "Campaigns", article);
+        SetupContentTypes(ContentType(article, "Article"));
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        var allowed = CreatePerm(isAllowed: true, "editors", nodeKey);
+        _docTypePermissions
+            .ResolveCreateForRolesAsync(Arg.Any<IReadOnlyList<string>>(), path, article, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(allowed);
+        _reach.ForUserGroupAsync("editors", nodeKey, PermissionDomain.Content).Returns(Blocked with { StartNodes = [] });
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.AllUserGroups, nodeKey, Aspect: ExplainAspect.TypeCreate, ContentTypeKey: article),
+            CancellationToken.None);
+
+        var roster = Assert.IsType<TypeCreateRoster>(result);
+        Assert.Null(roster.BlockedUserGroups);
+        Assert.Null(roster.StartNodeNote);
+        Assert.Equal(["Editors"], roster.NoStartNodeUserGroups!);
+        Assert.Equal(StartNodeReach.NoStartNodeRosterNote, roster.NoStartNodeNote);
+    }
+
     /// <summary>A parent the subject can reach leaves the type-create answer exactly as it was.</summary>
     [Fact]
     public async Task ParentAccessible_Unchanged()

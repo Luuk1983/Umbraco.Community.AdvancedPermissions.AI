@@ -67,4 +67,14 @@ public sealed record StartNodeReach(
         "These user groups' own start nodes don't reach here, so on its own each gives no access here. Users get " +
         "the combined start nodes of all their groups, so a member can still get in through another group or " +
         "their own start node, and the permissions listed then apply. Ask about a specific user to see the real result.";
+
+    /// <summary>
+    /// The shorter caveat a roster carries for user groups with no start node at all, such as the stock
+    /// "Sensitive data" group. Such a group is blocked on every node by design — it only adds rights to
+    /// members who get their content access elsewhere — so the full <see cref="RosterNote"/> on every
+    /// roster would be noise.
+    /// </summary>
+    public const string NoStartNodeRosterNote =
+        "These user groups have no start node, so they only add their permissions for members who reach this " +
+        "node another way. That is normal; mention it only if the question is about one of them.";
 }

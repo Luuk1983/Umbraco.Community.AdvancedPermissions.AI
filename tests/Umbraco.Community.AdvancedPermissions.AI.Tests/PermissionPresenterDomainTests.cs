@@ -195,4 +195,57 @@ public sealed class PermissionPresenterDomainTests
     [Fact]
     public void GetVerbDisplayName_DocumentTypeCreateVerb_StillReadsInsert() =>
         Assert.Equal("Insert", Sut.GetVerbDisplayName(AdvancedPermissionsConstants.VerbCreateOfType));
+
+    /// <summary>
+    /// The Library element-type filter is one decision for the whole Library, so there is no "further
+    /// down": a broad All Users Deny there is outranked only by a Priority Override Allow entry. The
+    /// finding says so, rather than "nobody can create it at all" or the per-node Insert Options wording.
+    /// </summary>
+    [Fact]
+    public async Task ToFriendlyAudit_LibraryBroadCreateDeny_NamesOnlyThePriorityOverrideEscape()
+    {
+        var report = new AuditReport(
+            [
+                new AuditFinding(
+                    "everyone-broad-create-deny",
+                    AuditSeverity.Risk,
+                    "raw",
+                    AdvancedPermissionsConstants.VirtualRootNodeKey,
+                    AdvancedPermissionsConstants.EveryoneRoleAlias,
+                    AdvancedPermissionsConstants.VerbElementCreateOfType),
+            ],
+            EntriesAnalyzed: 1);
+
+        var message = (await Sut.For(PermissionDomain.Library).ToFriendlyAuditAsync(report)).Findings.Single().Message;
+
+        Assert.DoesNotContain("nobody can create it at all", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("further down", message, StringComparison.Ordinal);
+        Assert.Contains("in the Library", message, StringComparison.Ordinal);
+        Assert.Contains("unless a Priority Override Allow entry outranks it", message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Inside a sentence the Library's virtual root reads as "the Library's Default permissions row"; the
+    /// <c>Node</c> field keeps the bare label that names the row.
+    /// </summary>
+    [Fact]
+    public async Task ToFriendlyAudit_LibraryVirtualRoot_NamesTheRowInsideTheSentence()
+    {
+        var report = new AuditReport(
+            [
+                new AuditFinding(
+                    "everyone-broad-write",
+                    AuditSeverity.Risk,
+                    "raw",
+                    AdvancedPermissionsConstants.VirtualRootNodeKey,
+                    AdvancedPermissionsConstants.EveryoneRoleAlias,
+                    "Umb.Element.Update"),
+            ],
+            EntriesAnalyzed: 1);
+
+        var finding = (await Sut.For(PermissionDomain.Library).ToFriendlyAuditAsync(report)).Findings.Single();
+
+        Assert.Contains("the Library's Default permissions row", finding.Message, StringComparison.Ordinal);
+        Assert.Equal("Default permissions (Library)", finding.Node);
+    }
 }

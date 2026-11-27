@@ -36,10 +36,23 @@ runs:
 
     # Named by project file, never by directory or solution: a path that matches no project makes
     # `dotnet test` report success while running nothing, which is indistinguishable from a green
-    # suite. The count assertion below is the second half of that guard.
+    # suite. The count assertion after the run is the second half of that guard: it reads the TRX
+    # results and fails unless more than zero tests were actually executed.
     - name: Test
       shell: bash
-      run: dotnet test tests/Umbraco.Community.AdvancedPermissions.AI.Tests/Umbraco.Community.AdvancedPermissions.AI.Tests.csproj --configuration Release --no-restore
+      run: |
+        set -euo pipefail
+        results="$RUNNER_TEMP/test-results"
+        rm -rf "$results"
+        dotnet test tests/Umbraco.Community.AdvancedPermissions.AI.Tests/Umbraco.Community.AdvancedPermissions.AI.Tests.csproj \
+          --configuration Release --no-restore \
+          --logger "trx;LogFileName=results.trx" --results-directory "$results"
+
+        trx="$results/results.trx"
+        [ -f "$trx" ] || { echo "::error::dotnet test wrote no results file, so it ran no test project"; exit 1; }
+        executed=$(grep -o '<Counters [^>]*' "$trx" | sed -n 's/.* executed="\([0-9]*\)".*/\1/p')
+        echo "Tests executed: ${executed:-0}"
+        [ "${executed:-0}" -gt 0 ] || { echo "::error::dotnet test executed no tests, so nothing was verified"; exit 1; }
 
     - name: Pack
       shell: bash

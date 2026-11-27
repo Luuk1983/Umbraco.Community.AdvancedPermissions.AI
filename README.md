@@ -175,7 +175,9 @@ what the permissions alone would give and names the start nodes in effect and wh
 answer never carries a suggested fix, because no permission entry can change it. In the all-user-groups
 roster, a group whose own start node misses the node keeps its allowed or denied result and is also
 flagged, with a note that users combine the start nodes of all their groups, so a member may still reach
-the node through another group. The All Users group has no start nodes and is never blocked.
+the node through another group. A group with no content start node at all, such as the stock "Sensitive
+data" group, is listed apart with a shorter note, since it only adds rights to members who reach the node
+another way. The All Users group has no start nodes and is never blocked.
 
 Set `suggestFix=true` to get the confirmed fixes described above. The package builds a small,
 case-specific set of candidate changes, simulates each one against its own pure resolver, and returns
@@ -222,9 +224,7 @@ an item Umbraco hides from them.
 
 ### `uap_audit_permissions`
 
-Scans stored permission entries against four checks: All Users allowed a write permission across the
-whole site from the root, an Allow entry and a Deny entry for the same permission on the same node, a
-user group able to manage permissions across a node and its descendants, and Priority Override entries. A
+Scans stored permission entries for risks and conflicts. A
 `scope` argument audits one user group (the default), everything under a node, or the whole
 configuration, with an optional minimum-severity filter. A `domain` argument chooses which configuration
 to scan: the content tree (the default), the Library tree, the document-type Insert Options, or the
@@ -232,21 +232,25 @@ Library element-type create entries. All four are stored separately, so a conten
 about the Library — ask for each domain you care about. The Library element-type domain is set once for
 the whole Library rather than per node, so the subtree scope does not apply to it; the other three do.
 
-Three of the checks run in every domain. The fourth depends on which way the domain defaults: for node
-permissions the risk is All Users *allowed* a write permission across the whole site, while for the two
-create filters an Allow grants nothing (they can only narrow), so the risk is the mirror image — All
-Users *denied* creating a type everywhere, which hides it from everyone. Findings in a create-filter
-domain name the document type or element type they concern.
+Two checks run in every domain: an Allow entry and a Deny entry for the same permission on the same node,
+and Priority Override entries. The rest depends on which way the domain defaults. For node permissions
+(content and Library) there are two more: a user group able to manage permissions across a node and its
+descendants, and All Users *allowed* a write permission across the whole tree. For the two create filters
+an Allow grants nothing (they can only narrow), so the one extra check is the mirror image: All Users
+*denied* creating a type everywhere, which hides it unless a more specific Allow entry lower down (document
+types only) or a Priority Override Allow entry outranks it. Findings in a create-filter domain name the
+document type or element type they concern.
 
 The Library domain runs one more check: a user group that has Library Allow entries but no Library start
 node, so on its own it gives no Library access and its entries only help members who reach the Library
 through another group or their own start node.
 
 Those checks are the entire rule set, so a clean result means they found nothing rather than that the
-configuration is correct in general. The whole-configuration scope is best-effort for the two tree
-domains: it sweeps every live node plus the root-level defaults, so entries left behind on deleted or
-trashed nodes are not included. For the create-filter domains it enumerates every user group, so it is
-complete.
+configuration is correct in general. The whole-configuration scope is best-effort for the three per-node
+domains (content, Library and document types): it covers every live node plus the Default permissions row,
+so entries left behind on deleted or trashed nodes are not included. For the create filters it enumerates
+every user group, so no group's entries are missed; the Library element-type filter has no nodes, so all
+of its entries are read.
 
 ### `uap_explain_concepts`
 

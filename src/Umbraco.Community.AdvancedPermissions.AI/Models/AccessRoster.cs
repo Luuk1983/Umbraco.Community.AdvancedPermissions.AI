@@ -11,8 +11,8 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// <param name="AllowedUserGroups">The display names of user groups whose effective permission is allowed.</param>
 /// <param name="DeniedUserGroups">The display names of user groups whose effective permission is denied.</param>
 /// <param name="BlockedUserGroups">
-/// The display names of user groups whose OWN start node does not reach the node, so on its own the group
-/// gives no access here. They still appear in the allowed or denied list with their permission result,
+/// The display names of user groups whose OWN start node is elsewhere and does not reach the node, so on
+/// its own the group gives no access here. They still appear in the allowed or denied list with their permission result,
 /// because users combine the start nodes of all their groups and a member may reach the node through
 /// another group or their own start node. <see langword="null"/> when no group is flagged.
 /// </param>
@@ -20,13 +20,23 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// Set whenever <c>BlockedUserGroups</c> is: the caveat that users combine the start nodes of all their
 /// groups, so a flagged group's permission still applies to members who reach the node another way.
 /// </param>
+/// <param name="NoStartNodeUserGroups">
+/// The display names of user groups with no start node at all, such as the stock "Sensitive data" group.
+/// Kept apart from <c>BlockedUserGroups</c> because such a group is blocked everywhere by design and only
+/// adds rights; they too keep their allowed or denied result. <see langword="null"/> when there are none.
+/// </param>
+/// <param name="NoStartNodeNote">
+/// Set whenever <c>NoStartNodeUserGroups</c> is: the shorter caveat for those groups.
+/// </param>
 public sealed record AccessRoster(
     string Permission,
     string Node,
     IReadOnlyList<string> AllowedUserGroups,
     IReadOnlyList<string> DeniedUserGroups,
     IReadOnlyList<string>? BlockedUserGroups = null,
-    string? StartNodeNote = null);
+    string? StartNodeNote = null,
+    IReadOnlyList<string>? NoStartNodeUserGroups = null,
+    string? NoStartNodeNote = null);
 
 /// <summary>
 /// A friendly roster report covering several permissions at a content node: one <see cref="AccessRoster"/>
