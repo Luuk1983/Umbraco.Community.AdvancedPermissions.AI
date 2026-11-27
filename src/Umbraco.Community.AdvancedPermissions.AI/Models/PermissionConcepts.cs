@@ -17,6 +17,10 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// <param name="Scopes">The three scopes and what each one actually reaches.</param>
 /// <param name="PriorityOverride">What Priority Override is, and what it is not.</param>
 /// <param name="InsertOptions">How document-type creation differs from node permissions.</param>
+/// <param name="StartNodes">
+/// Which part of the content tree a user can reach at all, checked by Umbraco before any permission —
+/// and why a page can be missing from the tree.
+/// </param>
 /// <param name="HowToChange">The backoffice navigation for changing a permission by hand.</param>
 public sealed record PermissionConcepts(
     string Model,
@@ -25,4 +29,5 @@ public sealed record PermissionConcepts(
     string Scopes,
     string PriorityOverride,
     string InsertOptions,
+    string StartNodes,
     string HowToChange);

@@ -52,6 +52,16 @@ public sealed class ExplainAccessTypeCreateTests
     /// <summary>The mocked user service (unused by the type-create aspect, but a tool dependency).</summary>
     private readonly IUserService _userService = Substitute.For<IUserService>();
 
+    /// <summary>The mocked start-node reach resolver; returns null (not blocked) unless a test configures it.</summary>
+    private readonly IStartNodeReachResolver _reach = Substitute.For<IStartNodeReachResolver>();
+
+    /// <summary>A blocking reach, as the resolver would return for a parent outside the start nodes.</summary>
+    private static readonly StartNodeReach Blocked = new(
+        "Not visible (start nodes)",
+        "Outside every start node, so Umbraco hides it from the tree.",
+        [new StartNodeRef("News", "from Editors")],
+        "Start nodes are set in the Users section, on the user group or on the user account. No permission entry can change this.");
+
     /// <summary>Builds the tests around a single editors group exposed by the user group service.</summary>
     public ExplainAccessTypeCreateTests()
     {
@@ -77,7 +87,9 @@ public sealed class ExplainAccessTypeCreateTests
             _contentTypeService,
             _entityService,
             _remediation,
-            _userService);
+            _userService,
+            TestGuards.AllowAll(),
+            _reach);
 
     /// <summary>Builds a mocked user group exposing the given alias and display name.</summary>
     /// <param name="alias">The alias the group should report.</param>
@@ -410,5 +422,205 @@ public sealed class ExplainAccessTypeCreateTests
         var parentCt = ContentType(Guid.NewGuid(), "Parent Type");
         parentCt.AllowedContentTypes.Returns(new[] { new ContentTypeSort(allowedChildKey, 0, "child") });
         _contentTypeService.Get(parentCtAlias).Returns(parentCt);
+    }
+
+    /// <summary>
+    /// Creating under a node needs access to that node (base <c>insert-options-viewer.md</c>): with the
+    /// parent outside the user's start nodes, every applicable type is blocked, the permission-only result
+    /// is kept, and a type that is structurally not an allowed child stays "Not applicable".
+    /// </summary>
+    [Fact]
+    public async Task ParentOutsideStartNodes_ApplicableTypesBlocked_NotApplicableStays()
+    {
+        var userKey = Guid.NewGuid();
+        var nodeKey = Guid.NewGuid();
+        var article = Guid.NewGuid();
+        var banner = Guid.NewGuid();
+        var path = new[] { nodeKey };
+        SetupParentAllowing(nodeKey, "Campaigns", article);
+        SetupCurrentUser(userKey);
+        SetupContentTypes(ContentType(article, "Article"), ContentType(banner, "Banner"));
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        var allowed = CreatePerm(isAllowed: true, "editors", nodeKey);
+        _docTypePermissions
+            .ResolveCreateAsync(userKey, nodeKey, path, Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(allowed);
+        _reach.ForUserAsync(userKey, nodeKey).Returns(Blocked);
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.CurrentUser, nodeKey, Aspect: ExplainAspect.TypeCreate),
+            CancellationToken.None);
+
+        var explanation = Assert.IsType<TypeCreateExplanation>(result);
+        Assert.Same(Blocked, explanation.StartNodes);
+        var articleVerdict = Assert.Single(explanation.DocumentTypes, v => v.DocumentType == "Article");
+        Assert.Equal("Blocked (start nodes)", articleVerdict.Result);
+        Assert.Equal("Allowed", articleVerdict.IfInsideStartNodes);
+        var bannerVerdict = Assert.Single(explanation.DocumentTypes, v => v.DocumentType == "Banner");
+        Assert.Equal("Not applicable", bannerVerdict.Result);
+        Assert.Null(bannerVerdict.IfInsideStartNodes);
+    }
+
+    /// <summary>A focused type under a blocked parent is reported blocked, with the permission-only result kept.</summary>
+    [Fact]
+    public async Task FocusedType_ParentBlocked_IsBlocked()
+    {
+        var userKey = Guid.NewGuid();
+        var nodeKey = Guid.NewGuid();
+        var article = Guid.NewGuid();
+        var path = new[] { nodeKey };
+        SetupParentAllowing(nodeKey, "Campaigns", article);
+        SetupCurrentUser(userKey);
+        SetupContentTypes(ContentType(article, "Article"));
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        var denied = CreatePerm(isAllowed: false, "editors", nodeKey);
+        _docTypePermissions
+            .ResolveCreateAsync(userKey, nodeKey, path, article, Arg.Any<CancellationToken>())
+            .Returns(denied);
+        _reach.ForUserAsync(userKey, nodeKey).Returns(Blocked);
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.CurrentUser, nodeKey, Aspect: ExplainAspect.TypeCreate, ContentTypeKey: article),
+            CancellationToken.None);
+
+        var verdict = Assert.IsType<TypeCreateVerdict>(result);
+        Assert.Equal("Blocked (start nodes)", verdict.Result);
+        Assert.Equal("Denied", verdict.IfInsideStartNodes);
+        Assert.Same(Blocked, verdict.StartNodes);
+    }
+
+    /// <summary>Creating at the root is checked against the virtual root: a restricted user is blocked there.</summary>
+    [Fact]
+    public async Task CreateAtRoot_RestrictedUser_Blocked()
+    {
+        var userKey = Guid.NewGuid();
+        var article = Guid.NewGuid();
+        var root = AdvancedPermissionsConstants.VirtualRootNodeKey;
+        SetupCurrentUser(userKey);
+        SetupContentTypes(ContentType(article, "Article", allowedAsRoot: true));
+        _pathResolver.GetPathFromRoot(root).Returns(Array.Empty<Guid>());
+        var allowed = CreatePerm(isAllowed: true, "editors", root);
+        _docTypePermissions
+            .ResolveCreateAsync(userKey, root, Arg.Any<IReadOnlyList<Guid>>(), article, Arg.Any<CancellationToken>())
+            .Returns(allowed);
+        _reach.ForUserAsync(userKey, root).Returns(Blocked);
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.CurrentUser, root, Aspect: ExplainAspect.TypeCreate),
+            CancellationToken.None);
+
+        var verdict = Assert.Single(Assert.IsType<TypeCreateExplanation>(result).DocumentTypes);
+        Assert.Equal("Blocked (start nodes)", verdict.Result);
+    }
+
+    /// <summary>"Who can create Article here?": a group whose own start node misses the parent is listed as blocked.</summary>
+    [Fact]
+    public async Task Roster_BlockedGroupsFlaggedButKeepTheirResult()
+    {
+        var nodeKey = Guid.NewGuid();
+        var article = Guid.NewGuid();
+        var path = new[] { nodeKey };
+        SetupParentAllowing(nodeKey, "Campaigns", article);
+        SetupContentTypes(ContentType(article, "Article"));
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        var allowed = CreatePerm(isAllowed: true, "editors", nodeKey);
+        _docTypePermissions
+            .ResolveCreateForRolesAsync(Arg.Any<IReadOnlyList<string>>(), path, article, Arg.Any<CancellationToken>())
+            .Returns(allowed);
+        _reach.ForUserGroupAsync("editors", nodeKey).Returns(Blocked);
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.AllUserGroups, nodeKey, Aspect: ExplainAspect.TypeCreate, ContentTypeKey: article),
+            CancellationToken.None);
+
+        var roster = Assert.IsType<TypeCreateRoster>(result);
+        Assert.Equal(["Editors"], roster.BlockedUserGroups!);
+        Assert.Contains("Editors", roster.AllowedUserGroups);
+        Assert.Contains("combined start nodes", roster.StartNodeNote!, StringComparison.Ordinal);
+        Assert.Contains("All Users", roster.AllowedUserGroups);
+    }
+
+    /// <summary>
+    /// A group with no start node at all is listed apart from the blocked groups, with its own shorter
+    /// note, in the type-create roster as in the permission roster.
+    /// </summary>
+    [Fact]
+    public async Task Roster_GroupWithNoStartNode_GetsItsOwnShorterNote()
+    {
+        var nodeKey = Guid.NewGuid();
+        var article = Guid.NewGuid();
+        var path = new[] { nodeKey };
+        SetupParentAllowing(nodeKey, "Campaigns", article);
+        SetupContentTypes(ContentType(article, "Article"));
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        var allowed = CreatePerm(isAllowed: true, "editors", nodeKey);
+        _docTypePermissions
+            .ResolveCreateForRolesAsync(Arg.Any<IReadOnlyList<string>>(), path, article, Arg.Any<CancellationToken>())
+            .Returns(allowed);
+        _reach.ForUserGroupAsync("editors", nodeKey).Returns(Blocked with { StartNodes = [] });
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.AllUserGroups, nodeKey, Aspect: ExplainAspect.TypeCreate, ContentTypeKey: article),
+            CancellationToken.None);
+
+        var roster = Assert.IsType<TypeCreateRoster>(result);
+        Assert.Null(roster.BlockedUserGroups);
+        Assert.Null(roster.StartNodeNote);
+        Assert.Equal(["Editors"], roster.NoStartNodeUserGroups!);
+        Assert.Equal(StartNodeReach.NoStartNodeRosterNote, roster.NoStartNodeNote);
+    }
+
+    /// <summary>A parent the subject can reach leaves the type-create answer exactly as it was.</summary>
+    [Fact]
+    public async Task ParentAccessible_Unchanged()
+    {
+        var userKey = Guid.NewGuid();
+        var nodeKey = Guid.NewGuid();
+        var article = Guid.NewGuid();
+        var path = new[] { nodeKey };
+        SetupParentAllowing(nodeKey, "Campaigns", article);
+        SetupCurrentUser(userKey);
+        SetupContentTypes(ContentType(article, "Article"));
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        var allowed = CreatePerm(isAllowed: true, "editors", nodeKey);
+        _docTypePermissions
+            .ResolveCreateAsync(userKey, nodeKey, path, article, Arg.Any<CancellationToken>())
+            .Returns(allowed);
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.CurrentUser, nodeKey, Aspect: ExplainAspect.TypeCreate),
+            CancellationToken.None);
+
+        var explanation = Assert.IsType<TypeCreateExplanation>(result);
+        Assert.Null(explanation.StartNodes);
+        Assert.Equal("Allowed", Assert.Single(explanation.DocumentTypes).Result);
+        await _reach.Received(1).ForUserAsync(userKey, nodeKey);
+    }
+
+    /// <summary>A single user group with a focused type under a blocked parent carries the reach and the group note.</summary>
+    [Fact]
+    public async Task UserGroup_FocusedType_BlockedCarriesReach()
+    {
+        var nodeKey = Guid.NewGuid();
+        var article = Guid.NewGuid();
+        var path = new[] { nodeKey };
+        SetupParentAllowing(nodeKey, "Campaigns", article);
+        SetupContentTypes(ContentType(article, "Article"));
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        var allowed = CreatePerm(isAllowed: true, "editors", nodeKey);
+        _docTypePermissions
+            .ResolveCreateForRolesAsync(Arg.Any<IReadOnlyList<string>>(), path, article, Arg.Any<CancellationToken>())
+            .Returns(allowed);
+        var withNote = Blocked with { Note = "Users get the combined start nodes of all their groups, so ask about a specific user to see the real result." };
+        _reach.ForUserGroupAsync("editors", nodeKey).Returns(withNote);
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.UserGroup, nodeKey, UserGroupAlias: "editors", Aspect: ExplainAspect.TypeCreate, ContentTypeKey: article),
+            CancellationToken.None);
+
+        var verdict = Assert.IsType<TypeCreateVerdict>(result);
+        Assert.Equal("Blocked (start nodes)", verdict.Result);
+        Assert.Equal("Allowed", verdict.IfInsideStartNodes);
+        Assert.Same(withNote, verdict.StartNodes);
     }
 }

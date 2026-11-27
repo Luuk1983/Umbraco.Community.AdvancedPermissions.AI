@@ -18,11 +18,11 @@ owns the phase-by-phase workflow; this file records what only this package knows
 
 Central versions live in `Directory.Packages.props`:
 
-- `Umbraco.Community.AdvancedPermissions` is pinned `[17.2.0,18.0.0)` — keep the floor at a released
+- `Umbraco.Community.AdvancedPermissions` is pinned `[17.5.0,18.0.0)` (17.5.0 brings `IStartNodeAccessService`) — keep the floor at a released
   stable base version and keep the upper bound a **plain stable version, never `18.0.0-0`**: a `-0`
   bound packs fine locally but **nuget.org rejects it at push time**
   (`400 BadRequest: invalid Version: '18.0.0-0'`), which fails the release tag, not any test. The
-  published base package's own nuspec uses plain `[17.3.0, 18.0.0)` bounds — that form is proven.
+  published base package's own nuspec uses plain `[17.4.0, 18.0.0)` bounds — that form is proven.
 - `Umbraco.AI.Startup` (the package's only other dependency) is pinned `[17.0.0,18.0.0)` — same plain
   upper bound; Umbraco.AI majors track the CMS major. It must be **Startup, not `Umbraco.AI.Core`**:
   Core alone packs fine, but it ships a property value converter that Umbraco type-scans and that
@@ -35,8 +35,8 @@ Central versions live in `Directory.Packages.props`:
 - The package declares **no** direct `Umbraco.Cms.*` — its floor is implicit and **computed** from the
   dependencies' nuspecs. Today that is **17.4.0**: `Umbraco.AI.Startup` 17.0.0 (what our floor resolves
   to, along with the `Core`/`Persistence`/`Web` 17.0.0 it pins) requires
-  `Umbraco.Cms.* [17.4.0, 17.999.999)` and the base package requires `[17.3.0, 18.0.0)`, so the higher
-  floor wins. Re-derive it each release rather than repeating it (it was documented as 17.4.2 for a
+  `Umbraco.Cms.* [17.4.0, 17.999.999)` and the base package 17.5.0 requires `[17.4.0, 18.0.0)`, so the
+  floor is 17.4.0. Re-derive it each release rather than repeating it (it was documented as 17.4.2 for a
   while, which was wrong), and keep the README's Requirements section in step. The only explicit
   `Umbraco.Cms` pin (TestSite) must stay at or above that floor.
 

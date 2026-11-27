@@ -39,7 +39,9 @@ public sealed class ToolDescriptionTerminologyTests
         Substitute.For<IContentTypeService>(),
         Substitute.For<IEntityService>(),
         Substitute.For<IPermissionRemediationService>(),
-        Substitute.For<IUserService>());
+        Substitute.For<IUserService>(),
+        Substitute.For<IPermissionLookupGuard>(),
+        Substitute.For<IStartNodeReachResolver>());
 
     /// <summary>Builds the audit tool with throwaway substitutes, purely to read its description.</summary>
     /// <returns>The tool.</returns>
@@ -47,7 +49,10 @@ public sealed class ToolDescriptionTerminologyTests
         Substitute.For<IAdvancedPermissionRepository>(),
         Substitute.For<IPermissionAuditAnalyzer>(),
         Substitute.For<IPermissionPresenter>(),
-        Substitute.For<IEntityService>());
+        Substitute.For<IEntityService>(),
+        Substitute.For<IPermissionLookupGuard>(),
+        Substitute.For<IUserGroupService>(),
+        Substitute.For<IDocTypePermissionRepository>());
 
     /// <summary>Every tool description the model sees, keyed by tool name.</summary>
     /// <returns>Tool name and description pairs.</returns>
@@ -56,6 +61,7 @@ public sealed class ToolDescriptionTerminologyTests
         { "uap_explain_access", NewExplainAccess().Description },
         { "uap_audit_permissions", NewAudit().Description },
         { "uap_explain_concepts", new ExplainConceptsTool().Description },
+        { "uap_explain_editors", new ExplainEditorsTool().Description },
     };
 
     /// <summary>

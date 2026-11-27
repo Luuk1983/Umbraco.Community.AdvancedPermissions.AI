@@ -19,10 +19,13 @@ flowchart TB
     LLM[("External LLM (OpenAI / Anthropic / …)")]
 
     subgraph AIPkg["This package: Umbraco.Community.AdvancedPermissions.AI"]
-        Tools["3 AITool classes: uap_explain_access (subject = current-user / user / user-group / all-user-groups; aspect = node / type-create), uap_audit_permissions, uap_explain_concepts"]
+        Tools["4 AITool classes: uap_explain_access (subject = current-user / user / user-group / all-user-groups; aspect = node / type-create), uap_audit_permissions (domain = content / document-types), uap_explain_concepts, uap_explain_editors"]
         ReadScope["AIToolScope: advanced-permissions:read"]
         Path["ContentPathResolver"]
         Audit["PermissionAuditAnalyzer"]
+        Guard["PermissionLookupGuard: Users-section gate for lookups of others"]
+        Reach["StartNodeReachResolver: start-node blocks, over the base IStartNodeAccessService"]
+        Names["UserGroupNameResolver: the user group names editors use, mapped to aliases"]
         Ground["AdvancedPermissionsGroundingContributor: always-on style + read-only stance, plus a document-only half"]
         Comp["AdvancedPermissionsAiComposer: registers the services + grounding contributor"]
     end
@@ -31,6 +34,8 @@ flowchart TB
         Svc["IAdvancedPermissionService"]
         Resv["IPermissionResolver (+ reasoning chain)"]
         Repo["IAdvancedPermissionRepository"]
+        DocRepo["IDocTypePermissionRepository (Insert Options)"]
+        StartSvc["IStartNodeAccessService (17.5.0+)"]
     end
 
     Editor -->|question| Copilot
@@ -45,6 +50,11 @@ flowchart TB
     Tools -->|resolve| Svc
     Tools -->|build node path| Path
     Tools -->|audit only| Audit
+    Tools -->|others? audit?| Guard
+    Tools -->|user group by name| Names
+    Tools -->|blocked by start nodes?| Reach
+    Tools -->|document-types audit| DocRepo
+    Reach --> StartSvc
     Path --> Svc
     Audit --> Repo
     Svc --> Resv
@@ -55,9 +65,13 @@ flowchart TB
 ```
 
 - Umbraco AI, at the top, provides the copilot chat, the agent runtime and the LLM connection.
-- This package, in the middle, adds three auto-discovered `[AITool]` classes, a read-only tool scope,
-  helper services (`ContentPathResolver`, `PermissionAuditAnalyzer`, `PermissionPresenter`) and a
-  runtime-context contributor that grounds the copilot.
+- This package, in the middle, adds four auto-discovered `[AITool]` classes, a read-only tool scope,
+  helper services (`ContentPathResolver`, `PermissionAuditAnalyzer`, `PermissionPresenter`,
+  `StartNodeReachResolver`, `PermissionLookupGuard`, and `UserGroupNameResolver`, which turns a user
+  group's display name into its alias) and a runtime-context contributor that grounds the copilot.
+  Start nodes are applied here, not by the base resolvers: the resolvers answer from entries alone,
+  while Umbraco checks start nodes first, so a node outside them is reported "Blocked (start nodes)".
+  Looking up anyone but the asker, and auditing, needs Users-section access, as in the base viewers.
 - The base permission package, at the bottom, is unchanged. The tools simply call its
   `IAdvancedPermissionService`.
 
@@ -94,12 +108,15 @@ deterministic result the resolver computed.
 
 `AdvancedPermissionsGroundingContributor` contributes to the copilot's system prompt in two halves:
 
-- Always on (roughly 635 tokens): editor-facing terminology and readability rules, the read-only
-  stance, and a pointer to `uap_explain_concepts`. It carries no definitions, only what a tool cannot
+- Always on (roughly 750 tokens): editor-facing terminology and readability rules, the read-only
+  stance, pointers to `uap_explain_concepts` and `uap_explain_editors`, and the rule never to send
+  someone without the Users section to the editors and viewers. It carries no definitions, only what a tool cannot
   deliver, because the style rules have to govern every sentence the copilot writes, including ones
   that paraphrase another tool's output.
-- Document conversations only (roughly 300 tokens, appended): tool nudges that presume a focused node,
-  the `suggestFix` rules, and the requirement to relay the `GrantedBy` and `Caution` fields.
+- Document conversations only (roughly 370 tokens, appended): tool nudges that presume a focused node
+  (a Deny entry or the user's start nodes as the likely causes, and that a start-node block is never
+  fixed by a permission entry), the `suggestFix` rules, and the requirement to relay the `GrantedBy` and
+  `Caution` fields.
 
 The definitions themselves live in `uap_explain_concepts`, so their cost is paid only when a conceptual
 question is actually asked. The pointer in the always-on half is what makes that safe. The failure it

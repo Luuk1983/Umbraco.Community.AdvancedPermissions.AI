@@ -8,6 +8,12 @@ public interface IPermissionAuditAnalyzer
 {
     /// <summary>Inspects the supplied entries and returns an ordered set of findings.</summary>
     /// <param name="entries">The stored permission entries to analyze.</param>
+    /// <param name="domain">
+    /// Which configuration the entries come from. Content permissions and Insert Options default in
+    /// opposite directions, so the broad All Users rule differs between them.
+    /// </param>
     /// <returns>A report containing all findings, most-severe first.</returns>
-    AuditReport Analyze(IReadOnlyList<AdvancedPermissionEntry> entries);
+    AuditReport Analyze(
+        IReadOnlyList<AdvancedPermissionEntry> entries,
+        AuditDomain domain = AuditDomain.Content);
 }

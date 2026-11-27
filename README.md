@@ -64,7 +64,9 @@ Once it is set up, editors can ask the copilot things like:
 
 - "What is a Priority Override?"
 - "What happens if I leave a permission unset?"
+- "Why is this page missing from the content tree?"
 - "How do I change a permission?"
+- "Which screen shows me why someone can't publish?"
 
 ![The copilot explaining why an action is blocked](https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/copilot_explain_access.jpg)
 
@@ -84,7 +86,8 @@ not decide anything. It picks the right question to ask, then puts the result in
   working copilot chat. This package brings the Umbraco AI runtime with it, but not its backoffice
   screens: install the `Umbraco.AI` package for the AI section, and `Umbraco.AI.Agent.Copilot` for the
   chat itself.
-- Advanced Permissions for Umbraco, which arrives automatically as a dependency.
+- Advanced Permissions for Umbraco 17.5.0 or newer, which arrives automatically as a dependency. 17.5.0
+  is the first version that lets the copilot take start nodes into account.
 
 
 ## Installation
@@ -110,7 +113,7 @@ step 5, which is the only step specific to this package.
 4. **Set up a default chat agent** for the copilot. Without one there is no chat for these tools to be
    called from.
 5. **Allow this package's tools on that agent.** Open the chat agent, go to Governance, and under
-   Allowed Tool Scopes tick "Advanced Permissions (read)". All three tools sit under that one scope.
+   Allowed Tool Scopes tick "Advanced Permissions (read)". All four tools sit under that one scope.
 
 ![Allowing the Advanced Permissions (read) tool scope on the chat agent](https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/agent_tool_scopes.jpg)
 
@@ -125,8 +128,16 @@ answer should name your real user groups.
 
 ## The tools
 
-Three tools are registered, all under the `advanced-permissions:read` scope. The copilot picks between
+Four tools are registered, all under the `advanced-permissions:read` scope. The copilot picks between
 them; you never call them yourself.
+
+Like the base package's viewers, the tools only let someone with access to the Users section look up
+other people's permissions. Without it, an editor can still ask about their own access, but asking about
+another user, a user group, or every user group, and running an audit, is refused.
+
+A user group can be named the way it appears on screen ("Editors") or by its alias, and "All Users" means
+the All Users group. A name that matches no user group is refused with the list of real groups, rather
+than being answered as a group with no entries.
 
 ### `uap_explain_access`
 
@@ -149,28 +160,60 @@ pure resolver on an in-memory copy of the entries, never the cached service, and
 user groups the original verdict used. `suggestFix` applies to the node aspect, to the current-user, user
 and user-group subjects, and only when a single permission is in focus.
 
+Start nodes are taken into account the same way the base package's Access Viewer does. Umbraco checks them
+before any permission, so when the subject's start nodes do not reach the node (or, for `type-create`, the
+parent), every result comes back as "Blocked (start nodes)" instead of allowed or denied. The answer keeps
+what the permissions alone would give and names the start nodes in effect and who set them. A blocked
+answer never carries a suggested fix, because no permission entry can change it. A document type that is
+not an allowed child stays "Not applicable". In the all-user-groups roster, a group whose own start node
+misses the node keeps its allowed or denied result and is also flagged, with a note that users combine the
+start nodes of all their groups, so a member may still reach the node through another group. A group with
+no start node at all, such as the stock "Sensitive data" group, is listed apart with a shorter note, since
+it only adds rights to members who reach the node another way. The All Users group has no start nodes and
+is never blocked.
+
 ### `uap_audit_permissions`
 
-Scans stored permission entries against four checks: All Users allowed a write permission across the
-whole site from the root, an Allow entry and a Deny entry for the same permission on the same node, a
-user group able to manage permissions across a node and its descendants, and Priority Override entries. A
-`scope` argument audits one user group (the default), everything under a node, or the whole
-configuration, with an optional minimum-severity filter.
+Scans stored permission configuration for risks and conflicts. A `domain` argument chooses what to scan:
+`content`, the permission entries on the content tree (the default), or `document-types`, the Insert
+Options that decide which document types each user group may create where. The two are stored separately,
+so each audit says nothing about the other. A `scope` argument audits one user group (the default),
+everything under a node, or the whole configuration, with an optional minimum-severity filter.
 
-Those four checks are the entire rule set, so a clean result means those four found nothing rather than
-that the configuration is correct in general. The whole-configuration scope is best-effort: it sweeps
-every live document node plus the root-level defaults, so entries left behind on deleted or trashed nodes
-are not included. It covers node permission entries only. Auditing the document-type Insert Options
-entries is planned.
+Two checks run in both domains: an Allow entry and a Deny entry for the same thing on the same node, and
+Priority Override entries. The rest depends on the domain, because the two default in opposite directions.
+For `content` there are two more: a user group able to manage permissions across a node and its
+descendants, and All Users allowed a write permission across the whole site from the root. For
+`document-types` there is one more: All Users denied creating a document type across the whole site, which
+hides that type everywhere unless a more specific Allow entry exists further down or a Priority
+Override Allow entry outranks it; a broad Allow there grants nothing, since Insert Options can only
+narrow what Umbraco already offers. Insert Options are analyzed one document type at a time, so two
+different types at one node are never reported as a conflict, and every finding names the document type it
+concerns. The whole-configuration scope reads every user group's entries, never only the All Users ones.
+
+Those checks are the entire rule set, so a clean result means they found nothing rather than that the
+configuration is correct in general. In both domains the whole-configuration scope is best-effort: it
+covers every live document node plus the Default permissions row, so entries left behind on deleted or
+trashed nodes are not included.
 
 ### `uap_explain_concepts`
 
 Takes no arguments and reads nothing. It returns the conceptual reference: how permissions are stored,
 how competing entries are resolved, what each scope reaches, what Priority Override actually is, how
-Insert Options differ, and where to change a permission in the backoffice. It exists because the copilot
+Insert Options differ, how start nodes limit what a user can reach (and why a page can be missing from the
+tree), and where to change a permission in the backoffice. It exists because the copilot
 answered these questions confidently and wrongly when left to its own knowledge. The wording comes from
 the base package's own help documentation, so the copilot explains the model exactly as the in-product
 help does.
+
+### `uap_explain_editors`
+
+Takes no arguments and reads nothing. It returns a guide to the base package's four screens: the Content
+Permissions Editor and Document Type Permissions Editor (under Editors in the Users section) and the Access
+Viewer and Insert Options Viewer (under Viewers). It explains how to pick the right one, how an editor
+differs from a viewer, how content permissions differ from Insert Options, and for each screen what it does
+not do and which one to use instead. It exists because the screen names are easy to mix up, and because
+the copilot is told never to describe a menu path from memory.
 
 ## Security
 
@@ -182,6 +225,8 @@ help does.
   suggested fix names only user groups and nodes already present in the reasoning.
 - Everything sits under the `advanced-permissions:read` scope, so Umbraco AI's per-user-group governance
   can allow or deny it like any other tool.
+- Looking up anyone else's permissions, and auditing, needs access to the Users section, the same rule the
+  base package applies to its own viewers. Asking about your own access never does.
 
 
 ## Contributing

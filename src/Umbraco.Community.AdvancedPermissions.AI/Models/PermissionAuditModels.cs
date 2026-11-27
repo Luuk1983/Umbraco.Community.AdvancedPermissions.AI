@@ -18,13 +18,21 @@ public enum AuditSeverity
 /// <param name="NodeKey">The content node the finding relates to, if any.</param>
 /// <param name="RoleAlias">The role the finding relates to, if any.</param>
 /// <param name="Verb">The verb the finding relates to, if any.</param>
+/// <param name="ContentTypeKey">
+/// The document type the finding relates to, for the document-type domain only. Those entries are keyed
+/// on a document type as well as a node, and a finding without it would tell an administrator that a
+/// group has a risky create entry somewhere while leaving them no way to tell <i>which type</i>. The audit
+/// tool attaches it after analysis, since the analyzer reasons per document type. <see langword="null"/>
+/// for content-permission findings.
+/// </param>
 public sealed record AuditFinding(
     string RuleId,
     AuditSeverity Severity,
     string Message,
     Guid? NodeKey = null,
     string? RoleAlias = null,
-    string? Verb = null);
+    string? Verb = null,
+    Guid? ContentTypeKey = null);
 
 /// <summary>The complete result of an audit run.</summary>
 /// <param name="Findings">All findings, ordered most-severe first.</param>
@@ -44,13 +52,18 @@ public sealed record AuditReport(
 /// <param name="UserGroup">The friendly user group name the finding relates to, if any.</param>
 /// <param name="Permission">The friendly permission name (the action being controlled) the finding relates to, if any.</param>
 /// <param name="Node">The friendly node name the finding relates to, if any.</param>
+/// <param name="ContentType">
+/// The display name of the document type the finding relates to, for the document-type domain.
+/// <see langword="null"/> for content-permission findings.
+/// </param>
 public sealed record FriendlyAuditFinding(
     string RuleId,
     string Severity,
     string Message,
     string? UserGroup = null,
     string? Permission = null,
-    string? Node = null);
+    string? Node = null,
+    string? ContentType = null);
 
 /// <summary>
 /// The friendly projection of an <see cref="AuditReport"/>, surfaced to editors verbatim.

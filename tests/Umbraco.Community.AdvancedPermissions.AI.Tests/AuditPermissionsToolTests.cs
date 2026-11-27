@@ -37,6 +37,12 @@ public sealed class AuditPermissionsToolTests
     /// <summary>The mocked entity service backing the real presenter.</summary>
     private readonly IEntityService _entityService = Substitute.For<IEntityService>();
 
+    /// <summary>The mocked lookup guard; allows auditing unless a test says otherwise.</summary>
+    private readonly IPermissionLookupGuard _lookupGuard = TestGuards.AllowAll();
+
+    /// <summary>The mocked Insert Options store; unused by the content domain these tests cover.</summary>
+    private readonly IDocTypePermissionRepository _docTypeRepository = Substitute.For<IDocTypePermissionRepository>();
+
     /// <summary>The mocked content-type service backing the real presenter.</summary>
     private readonly IContentTypeService _contentTypeService = Substitute.For<IContentTypeService>();
 
@@ -103,7 +109,7 @@ public sealed class AuditPermissionsToolTests
         _analyzer.Analyze(entries).Returns(rawReport);
 
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository);
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.UserGroup, roleAlias), CancellationToken.None);
 
@@ -121,7 +127,7 @@ public sealed class AuditPermissionsToolTests
         Assert.Equal("Risk", broad.Severity);
         Assert.Equal("All Users", broad.UserGroup);
         Assert.Equal("Update", broad.Permission);
-        Assert.Equal("All content (root-level default)", broad.Node);
+        Assert.Equal("Default permissions", broad.Node);
 
         // No raw identifiers anywhere in the serialized friendly report.
         var json = JsonSerializer.Serialize(report);
@@ -187,7 +193,7 @@ public sealed class AuditPermissionsToolTests
         _analyzer.Analyze(entries).Returns(rawReport);
 
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository);
 
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.Subtree, NodeKey: rootKey), CancellationToken.None);
@@ -249,7 +255,7 @@ public sealed class AuditPermissionsToolTests
         _analyzer.Analyze(entries).Returns(rawReport);
 
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository);
 
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.All), CancellationToken.None);
@@ -271,6 +277,8 @@ public sealed class AuditPermissionsToolTests
     [Fact]
     public async Task Audit_SeverityMin_FiltersOutLowerSeverityFindings()
     {
+        // The tool resolves the user group before auditing it, so the group has to exist.
+        SetupEditorsGroup();
         const string roleAlias = "editors";
         var nodeKey = Guid.NewGuid();
 
@@ -291,7 +299,7 @@ public sealed class AuditPermissionsToolTests
         _analyzer.Analyze(entries).Returns(rawReport);
 
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository);
 
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.UserGroup, roleAlias, SeverityMin: AuditSeverity.Risk),
@@ -308,7 +316,7 @@ public sealed class AuditPermissionsToolTests
     public async Task Audit_Role_MissingRoleAlias_ReturnsError()
     {
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository);
 
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.UserGroup), CancellationToken.None);
@@ -322,7 +330,7 @@ public sealed class AuditPermissionsToolTests
     public async Task Audit_Subtree_MissingNodeKey_ReturnsError()
     {
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService);
+        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository);
 
         var result = await ((IAITool)tool).ExecuteAsync(
             new AuditPermissionsArgs(AuditScope.Subtree), CancellationToken.None);
@@ -351,7 +359,7 @@ public sealed class AuditPermissionsToolTests
     public void Description_NamesOnlyTheChecksTheAnalyzerRuns(string expectedPhrase)
     {
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService).Description;
+        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository).Description;
 
         Assert.Contains(expectedPhrase, description, StringComparison.OrdinalIgnoreCase);
     }
@@ -364,9 +372,35 @@ public sealed class AuditPermissionsToolTests
     public void Description_DoesNotClaimAGeneralDescendantsScopeCheck()
     {
         var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
-        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService).Description;
+        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository).Description;
 
         Assert.DoesNotContain("risky 'this node and descendants'", description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The manage-permissions check can never fire for <c>document-types</c>: Insert Options hold only
+    /// create entries. The description must not claim it runs in every domain, or a clean document-types
+    /// report reads as "nobody can manage permissions" when that was never looked at.
+    /// </summary>
+    [Fact]
+    public void Description_TiesTheManagePermissionsCheckToContent()
+    {
+        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository).Description;
+
+        Assert.DoesNotContain("Three checks run in every domain", description, StringComparison.Ordinal);
+        Assert.Contains("Two checks run in every domain", description, StringComparison.Ordinal);
+        Assert.Contains("For `content` there are two more", description, StringComparison.Ordinal);
+    }
+
+    /// <summary>The note on <c>all</c> covers both domains, because both now sweep the same nodes.</summary>
+    [Fact]
+    public void Description_AllScopeNoteCoversBothDomains()
+    {
+        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository).Description;
+
+        Assert.Contains("in either domain", description, StringComparison.Ordinal);
     }
 
     /// <summary>Creates a stubbed <see cref="IEntitySlim"/> exposing the given key.</summary>
@@ -377,5 +411,69 @@ public sealed class AuditPermissionsToolTests
         var e = Substitute.For<IEntitySlim>();
         e.Key.Returns(key);
         return e;
+    }
+
+    /// <summary>
+    /// The audit reads every user group's entries, so without Users-section access it is refused before
+    /// any repository is read.
+    /// </summary>
+    [Fact]
+    public async Task WithoutUsersSection_ReturnsError()
+    {
+        _lookupGuard.CanInspectOthers().Returns(false);
+        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+
+        var result = await ((IAITool)new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository))
+            .ExecuteAsync(new AuditPermissionsArgs(AuditScope.All), CancellationToken.None);
+
+        Assert.Equal("Auditing permissions needs access to the Users section.", Assert.IsType<AccessError>(result).Error);
+        Assert.Empty(_repository.ReceivedCalls());
+    }
+
+    /// <summary>The description tells the model the audit needs the Users section.</summary>
+    [Fact]
+    public void Description_StatesTheUsersSectionRule()
+    {
+        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+        var description = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository).Description;
+        Assert.Contains("Users section", description, StringComparison.Ordinal);
+    }
+
+    /// <summary>Registers an Editors group (alias "editors") with the user group service.</summary>
+    private void SetupEditorsGroup()
+    {
+        var editors = Substitute.For<IUserGroup>();
+        editors.Alias.Returns("editors");
+        editors.Name.Returns("Editors");
+        _userGroupService.GetAllAsync(Arg.Any<int>(), Arg.Any<int>()).Returns(new PagedModel<IUserGroup>(1, new[] { editors }));
+    }
+
+    /// <summary>The model names the group as shown ("Editors"); the audit reads the real alias's entries.</summary>
+    [Fact]
+    public async Task UserGroupScope_DisplayName_ResolvesBeforeLookup()
+    {
+        SetupEditorsGroup();
+        _repository.GetByRoleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new List<AdvancedPermissionEntry>());
+        _analyzer.Analyze(Arg.Any<IReadOnlyList<AdvancedPermissionEntry>>()).Returns(new AuditReport([], 0));
+        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository);
+
+        await ((IAITool)tool).ExecuteAsync(new AuditPermissionsArgs(AuditScope.UserGroup, "Editors"), CancellationToken.None);
+
+        await _repository.Received(1).GetByRoleAsync("editors", Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>An unknown group is refused, never audited as a group with no entries.</summary>
+    [Fact]
+    public async Task UserGroupScope_Unknown_ReturnsErrorWithoutLookup()
+    {
+        SetupEditorsGroup();
+        var presenter = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+        var tool = new AuditPermissionsTool(_repository, _analyzer, presenter, _entityService, _lookupGuard, _userGroupService, _docTypeRepository);
+
+        var result = await ((IAITool)tool).ExecuteAsync(new AuditPermissionsArgs(AuditScope.UserGroup, "Marketing"), CancellationToken.None);
+
+        Assert.StartsWith("There is no user group called 'Marketing'.", Assert.IsType<AccessError>(result).Error, StringComparison.Ordinal);
+        await _repository.DidNotReceive().GetByRoleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 }

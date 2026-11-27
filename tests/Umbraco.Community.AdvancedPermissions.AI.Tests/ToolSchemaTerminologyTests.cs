@@ -40,6 +40,7 @@ public sealed class ToolSchemaTerminologyTests
         typeof(ExplainAspect),
         typeof(ExplainResponseFormat),
         typeof(AuditScope),
+        typeof(AuditDomain),
         typeof(AuditSeverity),
         typeof(AccessReason),
         typeof(AccessVerdict),
@@ -56,6 +57,11 @@ public sealed class ToolSchemaTerminologyTests
         typeof(FriendlyAuditReport),
         typeof(NodeRef),
         typeof(PermissionConcepts),
+        typeof(ExplainEditorsArgs),
+        typeof(EditorGuide),
+        typeof(EditorSurface),
+        typeof(StartNodeReach),
+        typeof(StartNodeRef),
     ];
 
     /// <summary>
@@ -118,5 +124,79 @@ public sealed class ToolSchemaTerminologyTests
         Assert.Contains("UserGroup", Enum.GetNames<ExplainSubject>());
         Assert.Contains("AllUserGroups", Enum.GetNames<ExplainSubject>());
         Assert.Contains("UserGroup", Enum.GetNames<AuditScope>());
+    }
+
+
+    /// <summary>
+    /// Types that live in the models namespace but are deliberately NOT model-visible, each for a stated
+    /// reason. Membership here is a decision, not an oversight — which is the point of
+    /// <see cref="ModelVisibleTypes_ListIsComplete"/>.
+    /// </summary>
+    private static readonly Dictionary<Type, string> DeliberatelyNotModelVisible = new()
+    {
+        // Internal carriers of base-package values. Documented in this class's remarks: they keep the
+        // role-named members on purpose, and the presenter converts them before anything reaches the
+        // model, so neither is ever serialized.
+        [typeof(AuditFinding)] = "internal carrier of base-package values; converted by the presenter",
+        [typeof(RemediationOption)] = "internal carrier of base-package values; converted by the presenter",
+        [typeof(AuditReport)] = "internal; projected to FriendlyAuditReport before the model sees it",
+        [typeof(RemediationActionKind)] = "internal ranking/wording driver on RemediationOption",
+    };
+
+    /// <summary>
+    /// Guards the guard: every public model type is either declared model-visible (and therefore
+    /// terminology-checked above) or explicitly excluded with a reason.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ModelVisibleTypes"/> is hand-maintained, so without this test it silently falls behind
+    /// the moment someone adds a returned type — and a type that is never checked is exactly where a
+    /// role-named or wrong-noun field slips into an answer. A new model now forces a deliberate choice
+    /// instead of defaulting to unchecked.
+    /// </remarks>
+    [Fact]
+    public void ModelVisibleTypes_ListIsComplete()
+    {
+        var declared = ModelVisibleTypes()
+            .Cast<object[]>()
+            .Select(row => (Type)row[0])
+            .ToHashSet();
+
+        var publicModelTypes = typeof(ExplainAccessArgs).Assembly
+            .GetTypes()
+            .Where(t => t.IsPublic
+                        && t.Namespace == typeof(ExplainAccessArgs).Namespace
+                        && (t.IsEnum || t.IsClass)
+                        && !t.IsAbstract
+                        && !t.IsNested);
+
+        var unaccounted = publicModelTypes
+            .Where(t => !declared.Contains(t) && !DeliberatelyNotModelVisible.ContainsKey(t))
+            .Select(t => t.Name)
+            .OrderBy(n => n)
+            .ToList();
+
+        Assert.True(
+            unaccounted.Count == 0,
+            "These model types are neither terminology-checked nor deliberately excluded. Add each one to "
+            + "ModelVisibleTypes() if a tool returns it (or the model types it), or to "
+            + $"DeliberatelyNotModelVisible with a reason: {string.Join(", ", unaccounted)}");
+    }
+
+    /// <summary>
+    /// The user group arguments ask for the name as shown, because that is all the model ever sees, and
+    /// name All Users in editor words — never the internal alias.
+    /// </summary>
+    /// <param name="type">An argument record with a user group argument.</param>
+    [Theory]
+    [InlineData(typeof(ExplainAccessArgs))]
+    [InlineData(typeof(AuditPermissionsArgs))]
+    public void UserGroupArgument_AsksForTheNameAsShown(Type type)
+    {
+        var description = type.GetProperty("UserGroupAlias")!
+            .GetCustomAttribute<System.ComponentModel.DescriptionAttribute>()!.Description;
+
+        Assert.Contains("name as shown", description, StringComparison.Ordinal);
+        Assert.Contains("All Users", description, StringComparison.Ordinal);
+        Assert.DoesNotContain("$everyone", description, StringComparison.Ordinal);
     }
 }

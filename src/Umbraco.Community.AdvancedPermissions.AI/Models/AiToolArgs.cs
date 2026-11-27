@@ -61,8 +61,8 @@ public enum ExplainResponseFormat
 /// <param name="NodeKey">The content node to evaluate access at.</param>
 /// <param name="UserKey">The user key; required when <see cref="ExplainSubject.User"/> is chosen.</param>
 /// <param name="UserGroupAlias">
-/// The user group alias (accepts '$everyone'); required when <see cref="ExplainSubject.UserGroup"/> is
-/// chosen. Carries the value the base package calls a role alias.
+/// The user group, by display name or alias ("All Users" included); required when <see cref="ExplainSubject.UserGroup"/> is
+/// chosen. The tool maps it to the alias, the value the base package calls a role alias.
 /// </param>
 /// <param name="Verb">Optional single verb to focus on; omit to evaluate all standard verbs.</param>
 /// <param name="ResponseFormat">How much reasoning detail to return.</param>
@@ -80,7 +80,7 @@ public sealed record ExplainAccessArgs(
     Guid NodeKey,
     [property: Description("The GUID key of the user to evaluate. Required when subject is 'user'.")]
     Guid? UserKey = null,
-    [property: Description("The user group alias to evaluate, or '$everyone' for All Users. Required when subject is 'user-group'.")]
+    [property: Description("The user group to evaluate: its name as shown (e.g. 'Editors') or its alias, or 'All Users'. Required when subject is 'user-group'.")]
     string? UserGroupAlias = null,
     [property: Description("Optional verb such as 'Umb.Document.Delete' to focus on a single action. Omit to evaluate all actions. Ignored when aspect is 'type-create'.")]
     string? Verb = null,
@@ -92,6 +92,31 @@ public sealed record ExplainAccessArgs(
     Guid? ContentTypeKey = null,
     [property: Description("When true, and access is denied, also return the concrete permission changes that would grant it.")]
     bool SuggestFix = false);
+
+/// <summary>
+/// Selects which stored permission configuration the <c>uap_audit_permissions</c> tool audits.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Both domains yield entries of the same shape, so they share one tool and most of the rules. There is
+/// one real split. Content permissions are denied unless allowed, so a broad All Users <b>Allow</b> is the
+/// risk. Insert Options are allowed unless denied and can only ever narrow what Umbraco already offers,
+/// so a broad Allow there grants nothing and the risk is the mirror image: a broad All Users <b>Deny</b>,
+/// which hides a document type from everyone. Applying one rule set to both would produce a false
+/// positive in one direction and miss the real risk in the other.
+/// </para>
+/// </remarks>
+public enum AuditDomain
+{
+    /// <summary>The content tree's stored permission entries. The default.</summary>
+    Content,
+
+    /// <summary>
+    /// The document-type create entries — the "Insert Options" deciding which document types each user
+    /// group may create under which content nodes. Per node, so every scope applies.
+    /// </summary>
+    DocumentTypes,
+}
 
 /// <summary>
 /// Selects which slice of the stored permission configuration the <c>uap_audit_permissions</c> tool audits.
@@ -114,20 +139,26 @@ public enum AuditScope
 /// whole configuration.
 /// </param>
 /// <param name="UserGroupAlias">
-/// The user group alias whose stored entries are audited, or '$everyone'. Required when
-/// <see cref="AuditScope.UserGroup"/>. Carries the value the base package calls a role alias.
+/// The user group whose stored entries are audited, by display name or alias. Required when
+/// <see cref="AuditScope.UserGroup"/>. The tool maps it to the alias the base package calls a role alias.
 /// </param>
 /// <param name="NodeKey">The content node whose subtree (this node plus descendants) is audited. Required when <see cref="AuditScope.Subtree"/>.</param>
 /// <param name="SeverityMin">Optional minimum severity; when set, only findings at or above this severity are returned.</param>
+/// <param name="Domain">
+/// Which stored configuration to audit: the content tree's permission entries (default) or the
+/// document-type Insert Options.
+/// </param>
 public sealed record AuditPermissionsArgs(
     [property: Description("What to audit: 'user-group' (all entries for one user group across the site — the default, requires userGroupAlias), 'subtree' (everything stored on a node and its descendants, requires nodeKey), or 'all' (the whole stored configuration).")]
     AuditScope Scope = AuditScope.UserGroup,
-    [property: Description("The user group alias whose stored permission entries to audit, or '$everyone'. Required when scope is 'user-group'.")]
+    [property: Description("The user group whose stored permission entries to audit: its name as shown (e.g. 'Editors') or its alias, or 'All Users'. Required when scope is 'user-group'.")]
     string? UserGroupAlias = null,
     [property: Description("The GUID key of the content node whose subtree (this node and all descendants) to audit. Required when scope is 'subtree'.")]
     Guid? NodeKey = null,
     [property: Description("Optional minimum severity filter: 'Info', 'Warning', or 'Risk'. When set, only findings at or above this severity are returned.")]
-    AuditSeverity? SeverityMin = null);
+    AuditSeverity? SeverityMin = null,
+    [property: Description("Which configuration to audit: 'content' (the permission entries on the content tree — the default) or 'document-types' (the Insert Options deciding which document types each user group may create where).")]
+    AuditDomain Domain = AuditDomain.Content);
 
 /// <summary>
 /// Arguments for the explain-concepts tool. The tool returns the whole conceptual reference, so it takes
@@ -135,3 +166,10 @@ public sealed record AuditPermissionsArgs(
 /// its own (wrong) assumptions about the rest.
 /// </summary>
 public sealed record ExplainConceptsArgs();
+
+/// <summary>
+/// Arguments for the explain-editors tool. Like the concepts tool it returns the whole reference and so
+/// takes no arguments — and here the reason is sharper: the point of the reference is the boundaries
+/// <i>between</i> the four surfaces, which a filter to one of them would remove exactly when it is needed.
+/// </summary>
+public sealed record ExplainEditorsArgs();
