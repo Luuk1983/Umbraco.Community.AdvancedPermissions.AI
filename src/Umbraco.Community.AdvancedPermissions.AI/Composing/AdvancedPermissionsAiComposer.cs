@@ -21,6 +21,8 @@ public sealed class AdvancedPermissionsAiComposer : IComposer
         builder.Services.AddSingleton<IContentPathResolver, ContentPathResolver>();
         builder.Services.AddSingleton<IPermissionPresenter, PermissionPresenter>();
         builder.Services.AddSingleton<IPermissionRemediationService, PermissionRemediator>();
+        builder.Services.AddSingleton<IPermissionLookupGuard, PermissionLookupGuard>();
+        builder.Services.AddSingleton<IStartNodeReachResolver, StartNodeReachResolver>();
 
         // Append the grounding contributor after Umbraco AI's built-in contributors so the focused
         // entity's type is already in the context's data bag when ours reads it to gate on documents.

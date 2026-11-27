@@ -109,8 +109,13 @@ public sealed class ExplainConceptsToolTests
         var concepts = await ExecuteAsync();
 
         Assert.Contains("Users section", concepts.HowToChange, StringComparison.Ordinal);
-        Assert.Contains("Content Permissions", concepts.HowToChange, StringComparison.Ordinal);
-        Assert.Contains("Permissions Editor", concepts.HowToChange, StringComparison.Ordinal);
+        Assert.Contains("Editors", concepts.HowToChange, StringComparison.Ordinal);
+        Assert.Contains("Content Permissions Editor", concepts.HowToChange, StringComparison.Ordinal);
+        Assert.Contains("Document Type Permissions Editor", concepts.HowToChange, StringComparison.Ordinal);
+        Assert.Contains("uap_explain_editors", concepts.HowToChange, StringComparison.Ordinal);
+
+        // The v17 release sent editors to a sidebar group that does not exist.
+        Assert.DoesNotContain("'Content Permissions' in the sidebar", concepts.HowToChange, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -124,5 +129,82 @@ public sealed class ExplainConceptsToolTests
 
         Assert.Contains("Priority Override", description, StringComparison.Ordinal);
         Assert.Contains("own knowledge", description, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Start nodes are explained with the base package's own rules (<c>concepts.md</c>, "Start nodes"):
+    /// checked before any permission, none means no content access, groups combine, a user-account start
+    /// node replaces group ones on its branch, no special case for Administrators, deleted ones ignored.
+    /// </summary>
+    /// <param name="phrase">A phrase each rule must be stated with.</param>
+    [Theory]
+    [InlineData("before any permission")]
+    [InlineData("no content access")]
+    [InlineData("combine")]
+    [InlineData("user account")]
+    [InlineData("Administrators")]
+    [InlineData("ignored")]
+    [InlineData("No permission entry can change that")]
+    public async Task Concepts_StartNodes_CoversTheBaseBullets(string phrase)
+    {
+        var concepts = await ExecuteAsync();
+
+        Assert.Contains(phrase, concepts.StartNodes, StringComparison.Ordinal);
+    }
+
+    /// <summary>v17 has no Library, so the start-node concept never mentions one.</summary>
+    [Fact]
+    public async Task Concepts_StartNodes_NeverMentionsTheLibrary()
+    {
+        var concepts = await ExecuteAsync();
+
+        Assert.DoesNotContain("Library", concepts.StartNodes, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// An Allow entry in Insert Options never adds a type Umbraco does not already permit; it only keeps it.
+    /// A Deny takes it away. Without this the copilot suggests an Allow to make a type appear.
+    /// </summary>
+    [Fact]
+    public async Task Concepts_InsertOptions_AllowOnlyKeepsAType()
+    {
+        var concepts = await ExecuteAsync();
+
+        Assert.Contains("never adds", concepts.InsertOptions, StringComparison.Ordinal);
+        Assert.Contains("takes it away", concepts.InsertOptions, StringComparison.Ordinal);
+    }
+
+    /// <summary>Creating under a node needs access to it, so Insert Options also depend on start nodes.</summary>
+    [Fact]
+    public async Task Concepts_InsertOptions_MentionsStartNodes()
+    {
+        var concepts = await ExecuteAsync();
+
+        Assert.Contains("start nodes", concepts.InsertOptions, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Read controls whether a page is shown in the content tree at all (base #64): a page missing from the
+    /// tree, or an empty tree, comes from Read being denied or the page being outside the start nodes.
+    /// </summary>
+    [Fact]
+    public async Task Concepts_ExplainsMissingFromTree()
+    {
+        var concepts = await ExecuteAsync();
+        var text = concepts.Model + " " + concepts.StartNodes;
+
+        Assert.Contains("missing from the tree", text, StringComparison.Ordinal);
+        Assert.Contains("empty tree", text, StringComparison.Ordinal);
+        Assert.Contains("Read", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>The description names start nodes and the missing-page question, so the model calls this for them.</summary>
+    [Fact]
+    public void Description_CoversStartNodesAndMissingPages()
+    {
+        var description = new ExplainConceptsTool().Description;
+
+        Assert.Contains("start nodes", description, StringComparison.Ordinal);
+        Assert.Contains("missing from the tree", description, StringComparison.Ordinal);
     }
 }

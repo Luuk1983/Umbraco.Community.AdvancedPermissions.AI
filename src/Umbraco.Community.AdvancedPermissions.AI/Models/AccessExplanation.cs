@@ -44,12 +44,24 @@ public sealed record AccessReason(
 /// result; <see langword="null"/> when it is nested inside an <see cref="AccessExplanation"/>, which
 /// carries the chain once for the whole answer.
 /// </param>
+/// <param name="IfInsideStartNodes">
+/// Set only when start nodes block the subject (<see cref="Result"/> is "Blocked (start nodes)"): what the
+/// permission entries alone would give — "Allowed" or "Denied" — if the node were inside a start node.
+/// <see langword="null"/> when the subject can reach the node.
+/// </param>
+/// <param name="StartNodes">
+/// Why start nodes block the subject, when they do and this verdict is the top-level result;
+/// <see langword="null"/> otherwise (including when nested inside an <see cref="AccessExplanation"/>, which
+/// carries it once for the whole answer).
+/// </param>
 public sealed record AccessVerdict(
     string Permission,
     string Result,
     IReadOnlyList<AccessReason> Reasons,
     IReadOnlyList<AccessRemediation>? Remediations = null,
-    IReadOnlyList<NodeRef>? Ancestors = null);
+    IReadOnlyList<NodeRef>? Ancestors = null,
+    string? IfInsideStartNodes = null,
+    StartNodeReach? StartNodes = null);
 
 /// <summary>
 /// A reference to a content node: its editor-facing name, plus the key needed to ask about it again.
@@ -74,7 +86,12 @@ public sealed record NodeRef(string Name, Guid Key);
 /// question, so it is returned rather than discarded: it is what lets "why here but not on the parent?"
 /// be answered with a second call to this tool instead of a search through the content tools.
 /// </param>
+/// <param name="StartNodes">
+/// Why start nodes block the subject from this node, when they do — in which case every verdict is
+/// "Blocked (start nodes)". <see langword="null"/> when the subject can reach the node.
+/// </param>
 public sealed record AccessExplanation(
     string Node,
     IReadOnlyList<AccessVerdict> Permissions,
-    IReadOnlyList<NodeRef> Ancestors);
+    IReadOnlyList<NodeRef> Ancestors,
+    StartNodeReach? StartNodes = null);

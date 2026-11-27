@@ -51,6 +51,9 @@ public sealed class ExplainAccessToolTests
     /// <summary>The mocked Umbraco user service used to resolve a user's groups for the remediation role set.</summary>
     private readonly IUserService _userService = Substitute.For<IUserService>();
 
+    /// <summary>The mocked lookup guard; allows inspecting others unless a test says otherwise.</summary>
+    private readonly IPermissionLookupGuard _lookupGuard = TestGuards.AllowAll();
+
     /// <summary>Builds the tests around a single editors group exposed by the user group service.</summary>
     public ExplainAccessToolTests()
     {
@@ -83,7 +86,9 @@ public sealed class ExplainAccessToolTests
             _contentTypeService,
             _entityService,
             Remediation,
-            _userService);
+            _userService,
+            _lookupGuard,
+            TestGuards.NeverBlocked());
 
     /// <summary>Builds a mocked user group exposing the given alias and display name.</summary>
     /// <param name="alias">The alias the group should report.</param>
@@ -753,5 +758,113 @@ public sealed class ExplainAccessToolTests
         Assert.NotNull(verdict.Remediations);
         Assert.Contains(verdict.Remediations!, r => r.Action == "Add");
         AssertNoRawIdentifiers(verdict, nodeKey);
+    }
+
+    /// <summary>
+    /// Without Users-section access, asking about another user, a user group or every user group is
+    /// refused before anything is resolved — the base package gates its Access Viewer the same way.
+    /// </summary>
+    /// <param name="subject">A subject other than the asker.</param>
+    /// <param name="aspect">The aspect asked about; the gate applies to both.</param>
+    [Theory]
+    [InlineData(ExplainSubject.User, ExplainAspect.Node)]
+    [InlineData(ExplainSubject.UserGroup, ExplainAspect.Node)]
+    [InlineData(ExplainSubject.AllUserGroups, ExplainAspect.Node)]
+    [InlineData(ExplainSubject.User, ExplainAspect.TypeCreate)]
+    [InlineData(ExplainSubject.UserGroup, ExplainAspect.TypeCreate)]
+    [InlineData(ExplainSubject.AllUserGroups, ExplainAspect.TypeCreate)]
+    public async Task OtherSubject_WithoutUsersSection_ReturnsError(ExplainSubject subject, ExplainAspect aspect)
+    {
+        _lookupGuard.CanInspectOthers().Returns(false);
+        var nodeKey = Guid.NewGuid();
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(subject, nodeKey, UserKey: Guid.NewGuid(), UserGroupAlias: "editors", Aspect: aspect),
+            CancellationToken.None);
+
+        var error = Assert.IsType<AccessError>(result);
+        Assert.Equal(
+            "Looking up the permissions of other users or user groups needs access to the Users section. You can still ask about your own access.",
+            error.Error);
+        Assert.Empty(_permissions.ReceivedCalls());
+        Assert.Empty(_docTypePermissions.ReceivedCalls());
+    }
+
+    /// <summary>The asker's own access stays answerable without Users-section access.</summary>
+    [Fact]
+    public async Task CurrentUser_WithoutUsersSection_StillAnswers()
+    {
+        _lookupGuard.CanInspectOthers().Returns(false);
+        var userKey = Guid.NewGuid();
+        var nodeKey = Guid.NewGuid();
+        var path = new[] { nodeKey };
+        SetupNode(nodeKey, "Homepage");
+        SetupCurrentUser(userKey);
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(path);
+        _permissions
+            .ResolveAsync(userKey, nodeKey, path, "Umb.Document.Delete", Arg.Any<CancellationToken>())
+            .Returns(Perm("Umb.Document.Delete", isAllowed: true, "editors", nodeKey));
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.CurrentUser, nodeKey, Verb: "Umb.Document.Delete"),
+            CancellationToken.None);
+
+        Assert.IsType<AccessVerdict>(result);
+    }
+
+    /// <summary>The description tells the model about the Users-section rule, so it can explain a refusal.</summary>
+    [Fact]
+    public void Description_StatesTheUsersSectionRule() =>
+        Assert.Contains("Users section", CreateTool().Description, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Live-check finding (v18): the model passes a group's display name ("Editors") as the alias. It must
+    /// reach the base package as the real alias, or every permission silently resolves as "nothing allows it".
+    /// </summary>
+    [Fact]
+    public async Task UserGroupByDisplayName_ResolvesBeforeLookup()
+    {
+        var nodeKey = Guid.NewGuid();
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(new[] { nodeKey });
+
+        await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.UserGroup, nodeKey, UserGroupAlias: "Editors"),
+            CancellationToken.None);
+
+        await _permissions.Received(1).ResolveForRoleAsync(
+            "editors", nodeKey, Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>An unknown user group is refused with the real list instead of being resolved as empty.</summary>
+    [Fact]
+    public async Task UnknownUserGroup_ReturnsErrorWithoutLookup()
+    {
+        var nodeKey = Guid.NewGuid();
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.UserGroup, nodeKey, UserGroupAlias: "Marketing"),
+            CancellationToken.None);
+
+        Assert.StartsWith("There is no user group called 'Marketing'.", Assert.IsType<AccessError>(result).Error, StringComparison.Ordinal);
+        Assert.Empty(_permissions.ReceivedCalls());
+    }
+
+    /// <summary>The type-create aspect resolves the display name too, before building its user group set.</summary>
+    [Fact]
+    public async Task TypeCreate_UserGroupByDisplayName_ResolvesBeforeLookup()
+    {
+        var nodeKey = Guid.NewGuid();
+        var contentTypeKey = Guid.NewGuid();
+        _pathResolver.GetPathFromRoot(nodeKey).Returns(new[] { nodeKey });
+
+        await ((IAITool)CreateTool()).ExecuteAsync(
+            new ExplainAccessArgs(ExplainSubject.UserGroup, nodeKey, UserGroupAlias: "Editors", Aspect: ExplainAspect.TypeCreate, ContentTypeKey: contentTypeKey),
+            CancellationToken.None);
+
+        await _docTypePermissions.Received(1).ResolveCreateForRolesAsync(
+            Arg.Is<IReadOnlyList<string>>(r => r.Contains("editors") && !r.Contains("Editors")),
+            Arg.Any<IReadOnlyList<Guid>>(),
+            contentTypeKey,
+            Arg.Any<CancellationToken>());
     }
 }

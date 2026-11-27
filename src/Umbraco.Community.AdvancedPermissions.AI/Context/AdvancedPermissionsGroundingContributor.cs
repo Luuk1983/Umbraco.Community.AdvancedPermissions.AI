@@ -15,13 +15,14 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Context;
 /// an ancestor-versus-descendant conflict); (2) editor-grounded <b>terminology</b> — a record is an
 /// "entry" (not a bare "Allow"/"Deny"), an action is a "permission", and the collections are "user groups"
 /// (not "roles"); (3) that the copilot is strictly <b>read-only</b>, so it must never offer to make or
-/// arrange a permission change and must hand it off to the user; and (4) the real backoffice navigation
-/// (the <b>Users</b> section → <b>Content Permissions</b> → <b>Permissions Editor</b>), so "how do I change
-/// this?" is answered with a real menu path rather than an invented one.
+/// arrange a permission change and must hand it off to the user; and (4) that navigation comes from the
+/// tools (<c>uap_explain_concepts</c>, <c>uap_explain_editors</c>), never from memory, and that every editor
+/// and viewer is in the <b>Users</b> section, so nobody without that section is sent there.
 /// </para>
 /// <para>
 /// <see cref="DocumentGrounding"/> is appended only on document conversations, and covers what presumes a
-/// focused node and the read tools: that a <c>Deny</c> entry is a likely cause when something looks blocked,
+/// focused node and the read tools: that a <c>Deny</c> entry or the user's start nodes are the likely causes
+/// when something looks blocked (and that a start-node block is never fixed by a permission entry),
 /// that a recommended fix must come from the confirmed <c>suggestFix</c> output rather than a guess, and
 /// that the tool's <c>GrantedBy</c>/<c>Caution</c> fields must be relayed.
 /// </para>
@@ -77,16 +78,21 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
         "Allow/Deny entries per user group, with scopes, tree inheritance and an optional Priority Override " +
         "flag. Its rules differ from Umbraco's built-in permissions. " +
         "For ANY question about how the permission system works — precedence, inheritance, scopes, Priority " +
-        "Override, unset permissions, Insert Options, or how to change a permission in the backoffice — call " +
+        "Override, unset permissions, Insert Options, start nodes, or how to change a permission in the backoffice — call " +
         "uap_explain_concepts and answer only from what it returns, never from your own knowledge, and do not " +
         "assume you already know. " +
+        "For ANY question about WHERE to go or WHICH screen to use — there are four editors and viewers " +
+        "whose names all combine 'permissions', 'editor' and 'viewer' — call uap_explain_editors rather " +
+        "than guessing from a name or describing a menu path from memory. " +
+        "All of those editors and viewers are in the Users section, so only people with access to the Users section can open them: " +
+        "never send anyone else there to check something — look it up for them with the tools, or say that an administrator can. " +
         "Terminology — talk like an editor, not the database. Never use 'Allow' or 'Deny' as bare nouns: say " +
         "'a Deny entry' / 'an Allow entry', or better use the verb ('deleting is denied', 'Editors are allowed " +
         "to publish'). An entry's state is Allow or Deny, so a blocking entry is 'a Deny entry' — never 'a Deny " +
         "permission' or 'an Allow permission' (a state is not a permission). The permission is the action being " +
         "controlled: always say 'the Delete permission', never the bare verb and never 'the Delete action'. " +
-        "A stored record is an 'entry' — never a 'rule' — because that is the word the Permissions Editor " +
-        "and its help use, so 'rule' sends the reader looking for something that is not there. " +
+        "A stored record is an 'entry' — never a 'rule' — because that is the word the permission editors " +
+        "and their help use, so 'rule' sends the reader looking for something that is not there. " +
         "Call the groups 'user groups', never 'roles'. Name the node when you know it, and always state " +
         "an entry's scope. Lead with the outcome ('you can't delete this page, because…'), then the reason, " +
         "and keep it concise. " +
@@ -116,9 +122,12 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
     /// need a document key.
     /// </summary>
     private const string DocumentGrounding =
-        " If a user cannot perform an action or the editor appears read-only, a Deny entry is a likely cause — " +
-        "use the Advanced Permissions tools (uap_explain_access, uap_audit_permissions) to check before " +
-        "concluding the cause is structural. " +
+        " If a user cannot perform an action, cannot see a page, or the editor appears read-only, a Deny entry " +
+        "or the user's start nodes are the likely causes — use the Advanced Permissions tools " +
+        "(uap_explain_access, uap_audit_permissions) to check before concluding anything else. A " +
+        "'Blocked (start nodes)' result means Umbraco blocks the node before any permission is checked: say " +
+        "so, relay who set the start nodes, and never suggest a permission entry as the fix — start nodes are " +
+        "changed in the Users section, on the user group or the user account. " +
         "When you recommend a change or explain how to fix a denial, first call uap_explain_access with " +
         "suggestFix=true and present ONLY the confirmed changes it returns (each is verified by simulating it " +
         "against the resolver) — never hand-roll or guess a fix, and remember suggestFix describes the entries " +

@@ -14,10 +14,20 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// The ordered friendly reasons that led to the result, highest priority first. Empty for a purely
 /// structural "Not applicable" verdict, or when creation is allowed by default with no narrowing entry.
 /// </param>
+/// <param name="IfInsideStartNodes">
+/// Set only when start nodes block the subject from the parent (<see cref="Result"/> is "Blocked (start
+/// nodes)"): what the permission entries alone would give if the parent were inside a start node.
+/// </param>
+/// <param name="StartNodes">
+/// Why start nodes block the subject, when they do and this verdict is the top-level result;
+/// <see langword="null"/> otherwise (an explanation carries it once for all its verdicts).
+/// </param>
 public sealed record TypeCreateVerdict(
     string DocumentType,
     string Result,
-    IReadOnlyList<AccessReason> Reasons);
+    IReadOnlyList<AccessReason> Reasons,
+    string? IfInsideStartNodes = null,
+    StartNodeReach? StartNodes = null);
 
 /// <summary>
 /// A friendly "what document types can be created here / why can't I create type X here" explanation
@@ -26,9 +36,14 @@ public sealed record TypeCreateVerdict(
 /// </summary>
 /// <param name="Node">The friendly name of the parent node under which creation was evaluated.</param>
 /// <param name="DocumentTypes">One friendly verdict per evaluated document type.</param>
+/// <param name="StartNodes">
+/// Why start nodes block the subject from the parent, when they do — creating under a node needs access
+/// to that node, so every applicable type is then "Blocked (start nodes)". <see langword="null"/> otherwise.
+/// </param>
 public sealed record TypeCreateExplanation(
     string Node,
-    IReadOnlyList<TypeCreateVerdict> DocumentTypes);
+    IReadOnlyList<TypeCreateVerdict> DocumentTypes,
+    StartNodeReach? StartNodes = null);
 
 /// <summary>
 /// A friendly "who can create this document type here" roster for a single document type under a parent
@@ -43,12 +58,34 @@ public sealed record TypeCreateExplanation(
 /// </param>
 /// <param name="AllowedUserGroups">The display names of user groups whose effective create permission for the type is allowed.</param>
 /// <param name="DeniedUserGroups">The display names of user groups whose effective create permission for the type is denied.</param>
+/// <param name="BlockedUserGroups">
+/// The display names of user groups whose OWN start node is elsewhere and does not reach the parent, so on
+/// its own the group gives no access here. They still appear in the allowed or denied list with their permission result,
+/// because users combine the start nodes of all their groups and a member may reach the parent through
+/// another group or their own start node. <see langword="null"/> when no group is flagged.
+/// </param>
+/// <param name="StartNodeNote">
+/// Set whenever <c>BlockedUserGroups</c> is: the caveat that users combine the start nodes of all their
+/// groups, so a flagged group's permission still applies to members who reach the node another way.
+/// </param>
+/// <param name="NoStartNodeUserGroups">
+/// The display names of user groups with no start node at all, such as the stock "Sensitive data" group.
+/// Kept apart from <c>BlockedUserGroups</c> because such a group is blocked everywhere by design and only
+/// adds rights; they too keep their allowed or denied result. <see langword="null"/> when there are none.
+/// </param>
+/// <param name="NoStartNodeNote">
+/// Set whenever <c>NoStartNodeUserGroups</c> is: the shorter caveat for those groups.
+/// </param>
 public sealed record TypeCreateRoster(
     string DocumentType,
     string Node,
     bool IsApplicable,
     IReadOnlyList<string> AllowedUserGroups,
-    IReadOnlyList<string> DeniedUserGroups);
+    IReadOnlyList<string> DeniedUserGroups,
+    IReadOnlyList<string>? BlockedUserGroups = null,
+    string? StartNodeNote = null,
+    IReadOnlyList<string>? NoStartNodeUserGroups = null,
+    string? NoStartNodeNote = null);
 
 /// <summary>
 /// A friendly roster report covering several document types under a parent node: one

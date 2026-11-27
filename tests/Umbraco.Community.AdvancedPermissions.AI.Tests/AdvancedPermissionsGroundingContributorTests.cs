@@ -306,4 +306,61 @@ public sealed class AdvancedPermissionsGroundingContributorTests
         Assert.Empty(context.Variables);
         Assert.Equal(dataCountBefore, context.Data.Count);
     }
+
+    /// <summary>
+    /// Every editor and viewer is in the Users section, so the always-on grounding must never send someone
+    /// without that section there — and must point "which screen?" questions at the editors tool.
+    /// </summary>
+    /// <param name="entityType">The focused entity type, or none.</param>
+    [Theory]
+    [InlineData("document")]
+    [InlineData(null)]
+    public void Contribute_AnyContext_SendsNobodyToScreensTheyCannotOpen(string? entityType)
+    {
+        var context = NewContext();
+        if (entityType is not null)
+        {
+            context.SetValue(Constants.ContextKeys.EntityType, entityType);
+        }
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("Users section", grounding, StringComparison.Ordinal);
+        Assert.Contains("never send anyone else there", grounding, StringComparison.Ordinal);
+        Assert.Contains("uap_explain_editors", grounding, StringComparison.Ordinal);
+        Assert.Contains("start nodes", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// On a document, start nodes are named next to a Deny entry as the likely causes of a block — including
+    /// a page the user cannot see — and the old "before concluding the cause is structural" steer is gone.
+    /// </summary>
+    [Fact]
+    public void Contribute_DocumentContext_NamesStartNodesAsCause()
+    {
+        var context = NewContext();
+        context.SetValue(Constants.ContextKeys.EntityType, "document");
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("the user's start nodes are the likely causes", grounding, StringComparison.Ordinal);
+        Assert.Contains("cannot see a page", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("before concluding the cause is structural", grounding, StringComparison.Ordinal);
+    }
+
+    /// <summary>A start-node block is never fixed by a permission entry, and the grounding must say so.</summary>
+    [Fact]
+    public void Contribute_DocumentContext_NeverSuggestsAnEntryForAStartNodeBlock()
+    {
+        var context = NewContext();
+        context.SetValue(Constants.ContextKeys.EntityType, "document");
+
+        _contributor.Contribute(context);
+
+        var grounding = Assert.Single(context.SystemMessageParts);
+        Assert.Contains("'Blocked (start nodes)'", grounding, StringComparison.Ordinal);
+        Assert.Contains("never suggest a permission entry as the fix", grounding, StringComparison.Ordinal);
+    }
 }

@@ -6,7 +6,8 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
 /// <summary>
 /// Returns the conceptual reference for how this package's permissions work: the storage model, the
 /// resolution order, what each scope reaches, what Priority Override actually is, how Insert Options
-/// differ, and the backoffice navigation for changing a permission by hand.
+/// differ, how start nodes limit what a user can reach, and the backoffice navigation for changing a
+/// permission by hand.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -36,7 +37,7 @@ public sealed class ExplainConceptsTool : AIToolBase<ExplainConceptsArgs>
             "remove. Each permission is independent: one can be overridden on a node while the rest keep " +
             "inheriting.",
         EntryAnatomy:
-            "A single entry is the unit an administrator creates in the Permissions Editor, and it is made " +
+            "A single entry is the unit an administrator creates in the Content Permissions Editor, and it is made " +
             "of four things: the user group it applies to (for example Editors, or the All Users group); the " +
             "permission it controls (for example the Delete permission, or Publish); its state, which is " +
             "either Allow or Deny; and its scope, which decides how far down the tree it reaches. An entry " +
@@ -54,7 +55,7 @@ public sealed class ExplainConceptsTool : AIToolBase<ExplainConceptsArgs>
             "the node itself, not its children. 'This node and descendants' means the node and everything " +
             "beneath it. 'Descendants only' means the children but not the node itself.",
         PriorityOverride:
-            "A flag on a single entry, ticked deliberately in the Permissions Editor. It exists because a " +
+            "A flag on a single entry, ticked deliberately in the Content Permissions Editor. It exists because a " +
             "user can belong to several user groups whose entries disagree and the normal order does not " +
             "always land where you want: flag the entry that should win and it wins, stepping outside the " +
             "order above regardless of the user's other groups (so a flagged Allow beats a same-node Deny). " +
@@ -66,22 +67,49 @@ public sealed class ExplainConceptsTool : AIToolBase<ExplainConceptsArgs>
             "Document-type 'Insert Options' control which document types can be created under a node, and " +
             "work the other way round from node permissions: a document type is creatable by default. It " +
             "becomes unavailable either because it is not an allowed child of that parent (filtered out of " +
-            "the list by Umbraco's own configuration) or because a Deny entry blocks it.",
+            "the list by Umbraco's own configuration) or because a Deny entry blocks it. An Allow entry never " +
+            "adds a type that Umbraco does not already permit as a child; it only keeps it available. A Deny " +
+            "entry takes it away. Creating under a node also needs access to that node through start nodes.",
+        StartNodes:
+            "Start nodes decide which part of the content tree a user can reach at all, and Umbraco checks them " +
+            "before any permission — so a node outside them is blocked whatever the entries say. No permission " +
+            "entry can change that; start nodes are set in the Users section, on the user group or on the user " +
+            "account. A user group has one start node, root access, or none, and a group without a start node " +
+            "gives no content access. A user's groups combine: they can reach every group's start node, and a " +
+            "higher start node covers a lower one on the same branch. Start nodes and permissions are separate, " +
+            "so a permission from one group also applies inside a start node that another group provides. A " +
+            "start node set on the user account replaces any group start node above or below it on the same " +
+            "branch, even root access; on a branch that no group start node covers, it adds access. " +
+            "Administrators reach everything only because their group has root access — there is no other " +
+            "exception. Deleted or trashed start nodes are ignored; if a user's own start node is deleted, they " +
+            "fall back to the group start nodes. The Access Viewer and Insert Options Viewer show a node outside " +
+            "the start nodes as a blocked cell — 'Browse only (start nodes)' for an ancestor of a start node, " +
+            "which Umbraco shows so users can browse down to it, and 'Not visible (start nodes)' for everything " +
+            "else. Some pickers can be configured to ignore start nodes, and backoffice search applies them " +
+            "slightly differently; the viewers show the tree and editor rules. " +
+            "A page is only shown in the content tree to users who have the Read permission on it and can reach " +
+            "it through their start nodes. So a page missing from the tree, or an empty tree, means Read is " +
+            "denied there or the page is outside the user's start nodes.",
         HowToChange:
-            "Open the Users section, choose 'Content Permissions' in the sidebar, and open the Permissions " +
-            "Editor. Pick the user group from the toolbar, find the node in the content tree (or use the " +
-            "Default permissions row for a site-wide baseline), click the cell for that action, set Allow or " +
-            "Deny with the appropriate scope, and Save. To block an action for everyone on a single node — " +
-            "for example protecting the homepage from deletion — add one entry: All Users group, Deny, that " +
-            "action, scope 'This Node Only'. Document-type creation is configured under 'Document Type " +
-            "Permissions' in the same section.");
+            "Everything is in the backoffice's Users section, whose sidebar has two groups: 'Editors' " +
+            "(Content Permissions Editor, Document Type Permissions Editor), where permissions are changed, " +
+            "and 'Viewers' (Access Viewer, Insert Options Viewer), which are read-only. To change a permission " +
+            "go to Users section -> Editors -> Content Permissions Editor. Pick the user group from the " +
+            "toolbar, find the node in the content tree (or use the Default permissions row for a site-wide " +
+            "baseline), click the cell for that permission, set Allow or Deny with the appropriate scope, and " +
+            "Save. To block an action for everyone on a single node — for example protecting the homepage " +
+            "from deletion — add one entry: All Users group, Deny, that permission, scope 'This Node Only'. " +
+            "Document-type creation is configured in the Document Type Permissions Editor, in the same " +
+            "Editors group. For which of the four screens answers a particular question, and how they " +
+            "differ, call uap_explain_editors.");
 
     /// <inheritdoc />
     public override string Description =>
         "Explain how permissions work in this Umbraco site (the Advanced Permissions package). " +
         "Call this for ANY conceptual question about the permission system — 'what is a Priority Override?', " +
         "'how does inheritance work?', 'what does this scope mean?', 'what happens if I leave it unset?', " +
-        "'why does a Deny win?', 'what are Insert Options?', or 'how do I change a permission in the backoffice?'. " +
+        "'why does a Deny win?', 'what are Insert Options?', 'what are start nodes?', 'why is a page missing from the tree?', " +
+        "or 'how do I change a permission in the backoffice?'. " +
         "Answer from what this returns and not from your own knowledge: the rules are specific to this package " +
         "and differ from Umbraco's built-in permissions, so an answer assembled from general knowledge sounds " +
         "convincing and is wrong. Takes no arguments and needs no node in context, so it works in any section. " +

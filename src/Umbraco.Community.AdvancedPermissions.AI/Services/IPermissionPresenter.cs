@@ -45,7 +45,7 @@ public interface IPermissionPresenter
     string GetStateText(PermissionState state);
 
     /// <summary>
-    /// Resolves a content node key to a friendly name: the special "All content (root-level default)"
+    /// Resolves a content node key to a friendly name: the special "Default permissions"
     /// label for the virtual-root sentinel, the content node's name when it can be resolved, or the
     /// generic "this node" fallback when it cannot.
     /// </summary>
