@@ -1,7 +1,9 @@
 using NSubstitute;
 using Umbraco.AI.Core.Tools;
 using Umbraco.Cms.Core.Models;
+using Umbraco.Cms.Core.Models.Entities;
 using Umbraco.Cms.Core.Models.Membership;
+using Umbraco.Cms.Core.Persistence.Querying;
 using Umbraco.Cms.Core.Services;
 using Umbraco.Community.AdvancedPermissions.AI.Models;
 using Umbraco.Community.AdvancedPermissions.AI.Services;
@@ -126,6 +128,82 @@ public sealed class AuditPermissionsCreateFilterTests
         _contentTypeService.Get(key).Returns(ct);
     }
 
+    /// <summary>Makes the given nodes the whole live content tree, as the whole-configuration sweep reads it.</summary>
+    /// <param name="keys">The live document keys.</param>
+    private void SetupLiveNodes(params Guid[] keys) =>
+        _entityService
+            .GetPagedDescendants(
+                UmbracoObjectTypes.Document,
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                out Arg.Any<long>(),
+                Arg.Any<IQuery<IUmbracoEntity>?>(),
+                Arg.Any<Ordering?>(),
+                Arg.Any<bool>())
+            .Returns(callInfo =>
+            {
+                callInfo[3] = (long)keys.Length;
+                return keys.Select(k =>
+                {
+                    var entity = Substitute.For<IEntitySlim>();
+                    entity.Key.Returns(k);
+                    return entity;
+                }).ToArray();
+            });
+
+    /// <summary>
+    /// The whole-configuration sweep covers the same nodes in both domains: every live node plus the
+    /// Default permissions row. An Insert Options entry left behind on a deleted node no longer decides
+    /// anything, and reporting it would point an administrator at a node they cannot find.
+    /// </summary>
+    [Fact]
+    public async Task DocumentTypes_AllScope_SkipsEntriesOnDeletedNodes()
+    {
+        const string verb = AdvancedPermissionsConstants.VerbCreateOfType;
+        var type = Guid.NewGuid();
+        var live = Guid.NewGuid();
+        var deleted = Guid.NewGuid();
+        SetupContentTypeName(type, "Article");
+        SetupLiveNodes(live);
+        SetupRoleEntries(
+            AdvancedPermissionsConstants.EveryoneRoleAlias,
+            Entry(AdvancedPermissionsConstants.VirtualRootNodeKey, type, AdvancedPermissionsConstants.EveryoneRoleAlias, verb, PermissionState.Deny));
+        SetupRoleEntries(
+            "editors",
+            Entry(live, type, "editors", verb, PermissionState.Allow, PermissionScope.ThisNodeOnly, priority: true),
+            Entry(deleted, type, "editors", verb, PermissionState.Allow, PermissionScope.ThisNodeOnly, priority: true));
+
+        var result = await RunAsync(new AuditPermissionsArgs(AuditScope.All, Domain: AuditDomain.DocumentTypes));
+
+        var report = Assert.IsType<FriendlyAuditReport>(result);
+        Assert.Equal(2, report.EntriesAnalyzed);
+        Assert.Single(report.Findings, f => f.RuleId == "priority-override");
+        Assert.Single(report.Findings, f => f.RuleId == "everyone-broad-create-deny");
+    }
+
+    /// <summary>
+    /// Library element-type entries are one decision for the whole Library and sit at the virtual root, so
+    /// the live-node filter that the document-type sweep applies must not touch them.
+    /// </summary>
+    [Fact]
+    public async Task LibraryElementTypes_AllScope_KeepsSectionWideEntries()
+    {
+        const string verb = AdvancedPermissionsConstants.VerbElementCreateOfType;
+        var type = Guid.NewGuid();
+        SetupContentTypeName(type, "Card");
+        SetupLiveNodes();
+        SetupRoleEntries(AdvancedPermissionsConstants.EveryoneRoleAlias);
+        SetupRoleEntries(
+            "editors",
+            Entry(AdvancedPermissionsConstants.VirtualRootNodeKey, type, "editors", verb, PermissionState.Allow, priority: true));
+
+        var result = await RunAsync(new AuditPermissionsArgs(AuditScope.All, Domain: AuditDomain.LibraryElementTypes));
+
+        var report = Assert.IsType<FriendlyAuditReport>(result);
+        Assert.Equal(1, report.EntriesAnalyzed);
+        Assert.Contains(report.Findings, f => f.RuleId == "priority-override");
+    }
+
     /// <summary>The document-type domain reads the create-filter store and audits its entries.</summary>
     [Fact]
     public async Task DocumentTypes_UserGroupScope_AuditsInsertOptionEntries()
@@ -225,10 +303,12 @@ public sealed class AuditPermissionsCreateFilterTests
     {
         var type = Guid.NewGuid();
         SetupContentTypeName(type, "Article");
+        var node = Guid.NewGuid();
+        SetupLiveNodes(node);
         SetupRoleEntries(AdvancedPermissionsConstants.EveryoneRoleAlias);
         SetupRoleEntries(
             "editors",
-            Entry(Guid.NewGuid(), type, "editors", verb, PermissionState.Allow, PermissionScope.ThisNodeOnly, priority: true));
+            Entry(node, type, "editors", verb, PermissionState.Allow, PermissionScope.ThisNodeOnly, priority: true));
 
         var result = await RunAsync(new AuditPermissionsArgs(AuditScope.All, Domain: domain));
 

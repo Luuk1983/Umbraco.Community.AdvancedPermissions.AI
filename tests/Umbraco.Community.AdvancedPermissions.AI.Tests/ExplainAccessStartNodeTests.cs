@@ -68,6 +68,16 @@ public sealed class ExplainAccessStartNodeTests
         [new StartNodeRef("News", "from Editors")],
         "Start nodes are set in the Users section, on the user group or on the user account. No permission entry can change this.");
 
+    /// <summary>
+    /// The reach for a group with no start node at all (the stock "Sensitive data" group): blocked
+    /// everywhere, with no start node in effect to list.
+    /// </summary>
+    private static readonly StartNodeReach NoStartNode = new(
+        "Not visible (start nodes)",
+        "This user group has no start node, so on its own it gives no content access. Every node is blocked.",
+        [],
+        "Start nodes are set in the Users section, on the user group or on the user account. No permission entry can change this.");
+
     /// <summary>Sets up two user groups, a named node, a current user in the Editors group, and its path.</summary>
     public ExplainAccessStartNodeTests()
     {
@@ -294,5 +304,45 @@ public sealed class ExplainAccessStartNodeTests
         var report = Assert.IsType<AccessRosterReport>(await RunAsync(new ExplainAccessArgs(ExplainSubject.AllUserGroups, _node)));
 
         Assert.All(report.Permissions, r => Assert.Equal(["Writers"], r.BlockedUserGroups!));
+    }
+
+    /// <summary>
+    /// A group with no start node at all — the stock "Sensitive data" group, which only adds rights — is
+    /// blocked on every node, so flagging it with the full caveat would put the same noise in every roster.
+    /// It gets a list and a shorter note of its own, and the full caveat stays for groups whose start node
+    /// is elsewhere.
+    /// </summary>
+    [Fact]
+    public async Task AllUserGroups_GroupWithNoStartNode_GetsItsOwnShorterNote()
+    {
+        _permissions.ResolveForRoleAsync(Arg.Any<string>(), _node, _path, Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, EffectivePermission> { [Delete] = Perm(Delete, isAllowed: true) });
+        _reach.ForUserGroupAsync("writers", _node, PermissionDomain.Content).Returns(NoStartNode);
+
+        var roster = Assert.IsType<AccessRoster>(await RunAsync(new ExplainAccessArgs(ExplainSubject.AllUserGroups, _node, Verb: Delete)));
+
+        Assert.Null(roster.BlockedUserGroups);
+        Assert.Null(roster.StartNodeNote);
+        Assert.Equal(["Writers"], roster.NoStartNodeUserGroups!);
+        Assert.Equal(StartNodeReach.NoStartNodeRosterNote, roster.NoStartNodeNote);
+        Assert.True(StartNodeReach.NoStartNodeRosterNote.Length < StartNodeReach.RosterNote.Length);
+        Assert.Contains("Writers", roster.AllowedUserGroups);
+    }
+
+    /// <summary>Both kinds of flag can appear in one roster, each with its own note.</summary>
+    [Fact]
+    public async Task AllUserGroups_BlockedAndNoStartNode_AreListedSeparately()
+    {
+        _permissions.ResolveForRoleAsync(Arg.Any<string>(), _node, _path, Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, EffectivePermission> { [Delete] = Perm(Delete, isAllowed: true) });
+        _reach.ForUserGroupAsync("editors", _node, PermissionDomain.Content).Returns(Blocked);
+        _reach.ForUserGroupAsync("writers", _node, PermissionDomain.Content).Returns(NoStartNode);
+
+        var roster = Assert.IsType<AccessRoster>(await RunAsync(new ExplainAccessArgs(ExplainSubject.AllUserGroups, _node, Verb: Delete)));
+
+        Assert.Equal(["Editors"], roster.BlockedUserGroups!);
+        Assert.Equal(StartNodeReach.RosterNote, roster.StartNodeNote);
+        Assert.Equal(["Writers"], roster.NoStartNodeUserGroups!);
+        Assert.Equal(StartNodeReach.NoStartNodeRosterNote, roster.NoStartNodeNote);
     }
 }

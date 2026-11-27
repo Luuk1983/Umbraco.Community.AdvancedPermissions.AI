@@ -99,8 +99,18 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
 - **The audit's broad-risk rule points in OPPOSITE directions per domain.** Node permissions are denied
   unless allowed, so the risk is a blanket All Users **Allow** of a write permission. The create filters
   are allowed unless denied and can only narrow, so a blanket Allow there grants nothing (false positive)
-  and the real risk is a blanket All Users **Deny**, which hides a type from everyone (false negative for
-  the Allow-only rule). `everyone-broad-write` vs `everyone-broad-create-deny`. Do not unify them.
+  and the real risk is a blanket All Users **Deny** (false negative for the Allow-only rule).
+  `everyone-broad-write` vs `everyone-broad-create-deny`. Do not unify them. Never say that Deny means
+  "nobody can create it at all": the base engine lets an explicit entry beat an inherited one and, within
+  one level, a Deny from any group wins unless an Allow is a Priority Override. So the document-type message
+  says "unless a more specific Allow entry exists further down or a Priority Override Allow entry outranks
+  it", and the section-wide Library element-type message names only the Priority Override.
+- **The audit description's per-domain check list must match `PermissionAuditAnalyzer`.** Two checks run in
+  every domain (Allow/Deny conflict, Priority Override); manage-permissions and broad-write only in
+  `content`/`library` (create filters hold only create entries, so manage-permissions can never fire there);
+  broad create-deny only in the create filters; `library-no-start-node` only in `library`. `all` keeps the
+  same node set in every per-node domain: `document-types` reads every group's entries and drops those not
+  on a live content node or the virtual root; `library-element-types` is section-wide and keeps them all.
 - **Create-filter entries must be analyzed ONE CONTENT TYPE AT A TIME.** They are keyed on (node, group,
   content type, verb) while the analyzer reasons over (node, group, verb), so two *different* document
   types with an Allow and a Deny at the same node for the same group share every key it looks at without
@@ -161,6 +171,12 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
     answers read exactly as before. Dropping the group's result instead was caught in review: it would
     tell the copilot a "Publishers" group with no start node cannot publish, while every member can. The
     `library-no-start-node` audit finding says "on its own" for the same reason — never "no effect".
+  - **In content rosters, a group with no start node at all is flagged apart.** It is blocked on every node
+    by design (the stock "Sensitive data" group only adds rights), so the full caveat on every content
+    roster was noise. A blocked reach with no start nodes in effect goes to `NoStartNodeUserGroups` with the
+    shorter `StartNodeReach.NoStartNodeRosterNote`, which tells the model to mention it only when the
+    question is about one of those groups. **Library rosters deliberately keep the full note**: there, no
+    Library start node is every group's state after an upgrade, the key fact rather than noise.
 - **Lookups of others need the Users section.** The base gates its Access Viewer, by-role and audit
   endpoints behind `SectionAccessUsers` so a user cannot inspect someone else's permissions; the tools call
   the services directly, so `IPermissionLookupGuard` re-applies that gate. `current-user` is always allowed;
@@ -170,8 +186,16 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
   unknown alias as a group with no entries, so the call silently resolved as "nothing allows it" — and the
   start-node check could not find the group either. Found in the live copilot check (2026-11-09): "why can't
   Writers edit this page?" got a confident, wrong "they have no entries". `UserGroupNameResolver` maps an
-  alias or display name (case-insensitive; "All Users"/"everyone" → `$everyone`) to the real alias and
-  refuses anything else with the list of real groups. Every tool that takes a user group runs it first.
+  alias or display name (case-insensitive) to the real alias, in this order: "All Users" or `$everyone` →
+  `$everyone`; a real group's alias (unique, so it settles any ambiguity); a display name, **refused with
+  the candidates and their aliases when more than one group has it** (never the first match); "everyone" →
+  `$everyone` **only when no real group answers to it**, so the shorthand never hides a real "Everyone"
+  group; anything else is refused with the list of real groups. Every tool that takes a user group runs it
+  first.
+- **The virtual root is a label as a field, "the … Default permissions row" in a sentence.** Fields that
+  name the row (`Node`, `SetOn`) keep "Default permissions" / "Default permissions (Library)"; the
+  presenter's sentences use `GetNodeNameInSentence` ("the Default permissions row", "the Library's Default
+  permissions row"), decided on the key so a real node with that name keeps its own name.
 - **Platform limit found in the live check (Umbraco.AI 18.3.1): no copilot in the Library section.** So the
   Library half of the grounding never fires in practice, Library questions arrive from other sections, and
   the model never has a Library node's key. It used to ask the editor for one (editors don't know keys);
@@ -186,7 +210,9 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
 - **The model-visible type list is guarded.** `ToolSchemaTerminologyTests.ModelVisibleTypes_ListIsComplete`
   reflects over the models namespace and fails if a public type is neither terminology-checked nor
   explicitly excluded with a reason. Adding a returned type therefore forces a decision. This was added
-  after the list had quietly fallen behind.
+  after the list had quietly fallen behind. The shared `.github/actions/build-package` Test step also reads
+  the TRX results and fails unless more than zero tests executed, because a `dotnet test` that runs nothing
+  reports success.
 
 - **Namespace collision with `Umbraco.Cms`**: the project namespace is
   `Umbraco.Community.AdvancedPermissions.AI`, so the compiler sees `Umbraco` as a parent namespace.

@@ -404,6 +404,35 @@ public sealed class AuditPermissionsToolTests
         Assert.DoesNotContain("risky 'this node and descendants'", description, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// The manage-permissions check can never fire for the create-filter domains (<c>document-types</c>,
+    /// <c>library-element-types</c>): they hold only create entries. The description must not claim it runs
+    /// in every domain, or a clean create-filter report reads as "nobody can manage permissions" when that
+    /// was never looked at.
+    /// </summary>
+    [Fact]
+    public void Description_TiesTheManagePermissionsCheckToContent()
+    {
+        var description = CreateTool().Description;
+
+        Assert.DoesNotContain("Three checks run in every domain", description, StringComparison.Ordinal);
+        Assert.Contains("Two checks run in every domain", description, StringComparison.Ordinal);
+        Assert.Contains("For `content` and `library` there are two more", description, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The note on <c>all</c> covers every per-node domain, because the document-type sweep now keeps the
+    /// same live nodes as the content sweep; the section-wide element-type filter has no nodes to skip.
+    /// </summary>
+    [Fact]
+    public void Description_AllScopeNoteCoversEveryPerNodeDomain()
+    {
+        var description = CreateTool().Description;
+
+        Assert.Contains("in every per-node domain", description, StringComparison.Ordinal);
+        Assert.DoesNotContain("in either domain", description, StringComparison.Ordinal);
+    }
+
     /// <summary>Creates a stubbed <see cref="IEntitySlim"/> exposing the given key.</summary>
     /// <param name="key">The Guid key the entity should report.</param>
     /// <returns>A substituted <see cref="IEntitySlim"/>.</returns>

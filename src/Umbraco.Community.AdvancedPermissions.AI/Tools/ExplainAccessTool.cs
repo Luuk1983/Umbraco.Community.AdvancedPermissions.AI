@@ -294,8 +294,9 @@ public sealed class ExplainAccessTool(
         var verbs = string.IsNullOrWhiteSpace(args.Verb) ? null : new[] { args.Verb };
         var node = presenter.GetNodeName(args.NodeKey);
 
-        // verb -> (allowed roles, denied roles, roles blocked by start nodes), preserving first-seen verb order.
-        var rosters = new Dictionary<string, (List<string> Allowed, List<string> Denied, List<string> Blocked)>(StringComparer.Ordinal);
+        // verb -> (allowed roles, denied roles, roles blocked by a start node elsewhere, roles with no start
+        // node), preserving first-seen verb order.
+        var rosters = new Dictionary<string, (List<string> Allowed, List<string> Denied, List<string> Blocked, List<string> NoStartNode)>(StringComparer.Ordinal);
         var verbOrder = new List<string>();
 
         foreach (var roleAlias in await GetRoleAliasesAsync())
@@ -311,20 +312,24 @@ public sealed class ExplainAccessTool(
             // A group whose own start node does not reach the node is flagged, but keeps its permission
             // result: users combine the start nodes of all their groups, so the group's permission still
             // applies to members who reach the node another way.
-            var blocked = await startNodeReach.ForUserGroupAsync(roleAlias, args.NodeKey, PermissionDomain.Content) is not null;
+            var flag = ClassifyReach(await startNodeReach.ForUserGroupAsync(roleAlias, args.NodeKey, PermissionDomain.Content));
             foreach (var permission in resolved.Values)
             {
                 if (!rosters.TryGetValue(permission.Verb, out var bucket))
                 {
-                    bucket = (new List<string>(), new List<string>(), new List<string>());
+                    bucket = (new List<string>(), new List<string>(), new List<string>(), new List<string>());
                     rosters[permission.Verb] = bucket;
                     verbOrder.Add(permission.Verb);
                 }
 
                 (permission.IsAllowed ? bucket.Allowed : bucket.Denied).Add(displayName);
-                if (blocked)
+                if (flag == StartNodeFlag.Blocked)
                 {
                     bucket.Blocked.Add(displayName);
+                }
+                else if (flag == StartNodeFlag.NoStartNode)
+                {
+                    bucket.NoStartNode.Add(displayName);
                 }
             }
         }
@@ -336,7 +341,9 @@ public sealed class ExplainAccessTool(
                 rosters[verb].Allowed,
                 rosters[verb].Denied,
                 rosters[verb].Blocked.Count > 0 ? rosters[verb].Blocked : null,
-                rosters[verb].Blocked.Count > 0 ? StartNodeReach.RosterNote : null))
+                rosters[verb].Blocked.Count > 0 ? StartNodeReach.RosterNote : null,
+                rosters[verb].NoStartNode.Count > 0 ? rosters[verb].NoStartNode : null,
+                rosters[verb].NoStartNode.Count > 0 ? StartNodeReach.NoStartNodeRosterNote : null))
             .ToList();
 
         // A focused verb yields exactly one roster — return it directly for a tighter answer.
@@ -717,14 +724,11 @@ public sealed class ExplainAccessTool(
         // Precompute friendly role display names once, and which groups their own start node keeps away
         // from the parent (creating under a node needs access to it, whatever the entries say).
         var displayNames = new Dictionary<string, string>(StringComparer.Ordinal);
-        var blockedAliases = new HashSet<string>(StringComparer.Ordinal);
+        var flags = new Dictionary<string, StartNodeFlag>(StringComparer.Ordinal);
         foreach (var alias in roleAliases)
         {
             displayNames[alias] = await presenter.GetRoleDisplayNameAsync(alias, cancellationToken);
-            if (await startNodeReach.ForUserGroupAsync(alias, args.NodeKey, PermissionDomain.Content) is not null)
-            {
-                blockedAliases.Add(alias);
-            }
+            flags[alias] = ClassifyReach(await startNodeReach.ForUserGroupAsync(alias, args.NodeKey, PermissionDomain.Content));
         }
 
         var candidates = args.ContentTypeKey is { } focused
@@ -745,13 +749,18 @@ public sealed class ExplainAccessTool(
             var allowed = new List<string>();
             var denied = new List<string>();
             var blocked = new List<string>();
+            var noStartNode = new List<string>();
             foreach (var alias in roleAliases)
             {
                 // Flagged, but still resolved: the group's entries apply to members who reach the parent
                 // through another group's start node.
-                if (blockedAliases.Contains(alias))
+                if (flags[alias] == StartNodeFlag.Blocked)
                 {
                     blocked.Add(displayNames[alias]);
+                }
+                else if (flags[alias] == StartNodeFlag.NoStartNode)
+                {
+                    noStartNode.Add(displayNames[alias]);
                 }
 
                 // Resolve per role with just that role + $everyone, matching the single-role semantics.
@@ -770,7 +779,9 @@ public sealed class ExplainAccessTool(
                 allowed,
                 denied,
                 blocked.Count > 0 ? blocked : null,
-                blocked.Count > 0 ? StartNodeReach.RosterNote : null));
+                blocked.Count > 0 ? StartNodeReach.RosterNote : null,
+                noStartNode.Count > 0 ? noStartNode : null,
+                noStartNode.Count > 0 ? StartNodeReach.NoStartNodeRosterNote : null));
         }
 
         // A focused type yields exactly one roster — return it directly for a tighter answer.
@@ -849,4 +860,37 @@ public sealed class ExplainAccessTool(
             .Where(k => k != Guid.Empty)
             .ToHashSet();
     }
+
+    /// <summary>How a user group's own start node affects a roster entry.</summary>
+    private enum StartNodeFlag
+    {
+        /// <summary>The group's own start node reaches the node.</summary>
+        None,
+
+        /// <summary>The group has a start node, but elsewhere: flagged with the full combined-start-nodes caveat.</summary>
+        Blocked,
+
+        /// <summary>
+        /// The group has no start node at all, so it is blocked everywhere by design (the stock "Sensitive
+        /// data" group, which only adds rights): flagged apart, with a shorter note.
+        /// </summary>
+        NoStartNode,
+    }
+
+    /// <summary>
+    /// Classifies a user group's reach for a roster. A blocked group with no start node in effect is a
+    /// group without a start node; any other blocked group has its start node elsewhere.
+    /// </summary>
+    /// <remarks>
+    /// Content rosters only. The Library tool keeps the full note for groups without a Library start node,
+    /// because there that is every group but Administrators after an upgrade — the key fact, not noise.
+    /// </remarks>
+    /// <param name="reach">The group's reach, or <see langword="null"/> when it is not blocked.</param>
+    /// <returns>The roster flag.</returns>
+    private static StartNodeFlag ClassifyReach(StartNodeReach? reach) => reach switch
+    {
+        null => StartNodeFlag.None,
+        { StartNodes.Count: 0 } => StartNodeFlag.NoStartNode,
+        _ => StartNodeFlag.Blocked,
+    };
 }

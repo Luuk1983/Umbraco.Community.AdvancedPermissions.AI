@@ -18,7 +18,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
 /// <list type="bullet">
 /// <item><description><b>UserGroup</b> — every entry for one user group across the tree, via <see cref="INodePermissionRepository.GetByRoleAsync"/>.</description></item>
 /// <item><description><b>Subtree</b> — every entry on a node and its descendant document nodes; descendant keys are gathered from <see cref="IEntityService"/> and entries loaded via <see cref="INodePermissionRepository.GetByNodesAsync"/>.</description></item>
-/// <item><description><b>All</b> — a best-effort sweep of the whole configuration: every live document node (descendants of root) plus the virtual-root sentinel, loaded via <see cref="INodePermissionRepository.GetByNodesAsync"/>. See the limitation note on the description.</description></item>
+/// <item><description><b>All</b> — a best-effort sweep of the whole configuration: every live document node (descendants of root) plus the virtual-root sentinel, loaded via <see cref="INodePermissionRepository.GetByNodesAsync"/>. The document-types domain reads every group's entries and keeps the same node set; the section-wide Library element-type domain keeps every entry. See the limitation note on the description.</description></item>
 /// </list>
 /// In every case the entries are handed to the analyzer, the findings are optionally filtered to a
 /// minimum severity, and the report is projected through the presenter.
@@ -84,13 +84,13 @@ public sealed class AuditPermissionsTool(
 
     /// <inheritdoc />
     public override string Description =>
-        "Scan stored permission configuration for risks and conflicts. Three checks run in every domain: an " +
-        "Allow entry and a Deny entry for the same thing on the same node; a user group able to manage " +
-        "permissions across a node and its descendants; and Priority Override entries. A fourth check depends " +
-        "on the domain, because the two kinds of permission default in opposite directions: for `content` and " +
-        "`library` it is All Users ALLOWED a write permission across the whole site from the root, and for " +
-        "`document-types` and `library-element-types` it is All Users DENIED creating a type across the whole " +
-        "site (an Allow there grants nothing, since a create filter can only narrow). " +
+        "Scan stored permission configuration for risks and conflicts. Two checks run in every domain: an " +
+        "Allow entry and a Deny entry for the same thing on the same node; and Priority Override entries. " +
+        "For `content` and `library` there are two more: a user group able to manage permissions across a node " +
+        "and its descendants; and All Users ALLOWED a write permission across the whole tree from the root. For " +
+        "`document-types` and `library-element-types` there is one more: All Users DENIED creating a type " +
+        "everywhere (an Allow there grants nothing, since a create filter can only narrow; and create filters " +
+        "hold no manage-permissions entries, so that check does not apply). " +
         "In the `library` domain one more check runs: a user group with Library Allow entries but no Library " +
         "start node, so on its own it gives no Library access and its entries only help members who reach the " +
         "Library through another group — the usual state of every group except Administrators right after an " +
@@ -114,8 +114,9 @@ public sealed class AuditPermissionsTool(
         "A finding in either create-filter domain names the document type or element type it concerns — always " +
         "relay that, since a group can have entries for many types. " +
         "Needs access to the Users section, like the base package's own viewers. " +
-        "Note: `all` is best-effort — it sweeps every live node plus the root-level defaults, so entries " +
-        "left behind on deleted/trashed nodes are not included.";
+        "Note: `all` is best-effort — in every per-node domain (`content`, `library`, `document-types`) it sweeps " +
+        "every live node plus the Default permissions row, so entries left behind on deleted/trashed nodes are " +
+        "not included; `library-element-types` has no nodes and reads every entry.";
 
     /// <inheritdoc />
     protected override async Task<object> ExecuteAsync(AuditPermissionsArgs args, CancellationToken cancellationToken = default)
@@ -323,6 +324,15 @@ public sealed class AuditPermissionsTool(
         {
             var subtreeKeys = GatherSubtreeKeys(args.NodeKey!.Value).ToHashSet();
             relevant = relevant.Where(e => subtreeKeys.Contains(e.NodeKey));
+        }
+        else if (args.Scope == AuditScope.All && args.Domain == AuditDomain.DocumentTypes)
+        {
+            // The same node set as the content sweep: the store has no by-node read, so every group's
+            // entries are read and those left behind on deleted nodes dropped here. They no longer decide
+            // anything, and a finding on one points at a node nobody can find. The Library element-type
+            // filter is section-wide (its entries sit at the virtual root), so it has no nodes to drop.
+            var liveKeys = GatherAllKeys().ToHashSet();
+            relevant = relevant.Where(e => liveKeys.Contains(e.NodeKey));
         }
 
         var findings = new List<AuditFinding>();

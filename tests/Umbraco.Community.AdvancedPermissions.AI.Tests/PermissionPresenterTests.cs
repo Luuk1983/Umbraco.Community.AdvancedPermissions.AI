@@ -637,4 +637,103 @@ public sealed class PermissionPresenterTests
         Assert.DoesNotContain("AddPriorityOverrideAllow", json);
         Assert.DoesNotContain(nodeKey.ToString(), json);
     }
+
+    /// <summary>
+    /// Insert Options resolve by nearest node, so an Allow entry lower down beats an inherited All Users
+    /// Deny, and a Priority Override Allow entry outranks it at the same level. The broad create-deny
+    /// finding must not claim "nobody can create it at all" — that overstates it and would send an
+    /// administrator chasing a type that is in fact creatable under some branches.
+    /// </summary>
+    [Fact]
+    public async Task ToFriendlyAudit_BroadCreateDeny_AllowsForAMoreSpecificAllowFurtherDown()
+    {
+        var sut = CreateSut();
+        var report = new AuditReport(
+            [
+                new AuditFinding(
+                    "everyone-broad-create-deny",
+                    AuditSeverity.Risk,
+                    "raw",
+                    AdvancedPermissionsConstants.VirtualRootNodeKey,
+                    AdvancedPermissionsConstants.EveryoneRoleAlias,
+                    AdvancedPermissionsConstants.VerbCreateOfType),
+            ],
+            EntriesAnalyzed: 1);
+
+        var message = (await sut.ToFriendlyAuditAsync(report)).Findings.Single().Message;
+
+        Assert.DoesNotContain("nobody can create it at all", message, StringComparison.Ordinal);
+        Assert.Contains("unless a more specific Allow entry exists further down", message, StringComparison.Ordinal);
+        Assert.Contains("Priority Override Allow entry", message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The virtual root's label names a row in the editor. Dropped bare into a sentence it reads badly
+    /// ("from Default permissions", "on Default permissions and all of its descendants"), so inside a
+    /// sentence it is "the Default permissions row"; the <c>Node</c> field, which names the row itself,
+    /// keeps the bare label.
+    /// </summary>
+    /// <param name="ruleId">A rule whose message names the node.</param>
+    /// <param name="roleAlias">The user group the finding is for.</param>
+    /// <param name="verb">The permission the finding is for.</param>
+    [Theory]
+    [InlineData("everyone-broad-write", "$everyone", "Umb.Document.Update")]
+    [InlineData("manage-permissions-descendants", "editors", "Umb.Document.Permissions")]
+    [InlineData("allow-deny-conflict", "editors", "Umb.Document.Delete")]
+    [InlineData("some-future-rule", "editors", "Umb.Document.Delete")]
+    public async Task ToFriendlyAudit_AtVirtualRoot_NamesTheRowInsideTheSentence(string ruleId, string roleAlias, string verb)
+    {
+        SetupGroups(Group("editors", "Editors"));
+        var sut = CreateSut();
+        var report = new AuditReport(
+            [new AuditFinding(ruleId, AuditSeverity.Risk, "raw", AdvancedPermissionsConstants.VirtualRootNodeKey, roleAlias, verb)],
+            EntriesAnalyzed: 1);
+
+        var finding = (await sut.ToFriendlyAuditAsync(report)).Findings.Single();
+
+        Assert.Contains("the Default permissions row", finding.Message, StringComparison.Ordinal);
+        Assert.Equal("Default permissions", finding.Node);
+    }
+
+    /// <summary>
+    /// A remediation on the virtual root names it as a row inside its sentences — both "on the Default
+    /// permissions row" for where to add or remove the entry, and "inherited from the Default permissions
+    /// row" for what grants it afterwards — while <c>SetOn</c> keeps the bare label.
+    /// </summary>
+    [Fact]
+    public async Task ToRemediation_AtVirtualRoot_NamesTheRowInsideTheSentence()
+    {
+        var nodeKey = Guid.NewGuid();
+        SetupGroups(Group("editors", "Editors"));
+        SetupNode(nodeKey, "News");
+        var sut = new PermissionPresenter(_userGroupService, _entityService, _contentTypeService);
+
+        var add = await sut.ToRemediationAsync(new RemediationOption(
+            RemediationActionKind.AddAllowOnAncestor,
+            "editors",
+            AdvancedPermissionsConstants.VerbPublish,
+            AdvancedPermissionsConstants.VirtualRootNodeKey,
+            PermissionScope.ThisNodeAndDescendants,
+            RemovedRoleAliases: []));
+
+        Assert.Contains("on the Default permissions row", add.Description, StringComparison.Ordinal);
+        Assert.Equal("Default permissions", add.SetOn);
+
+        var remove = await sut.ToRemediationAsync(new RemediationOption(
+            RemediationActionKind.RemoveDeny,
+            "editors",
+            AdvancedPermissionsConstants.VerbPublish,
+            nodeKey,
+            Scope: null,
+            RemovedRoleAliases: ["editors"],
+            GrantedBy: new PermissionReasoning(
+                "editors",
+                PermissionState.Allow,
+                IsExplicit: false,
+                SourceNodeKey: AdvancedPermissionsConstants.VirtualRootNodeKey,
+                SourceScope: PermissionScope.ThisNodeAndDescendants,
+                IsFromGroupDefault: false)));
+
+        Assert.Contains("inherited from the Default permissions row", remove.Description, StringComparison.Ordinal);
+    }
 }
