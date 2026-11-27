@@ -1,32 +1,31 @@
-using Umbraco.AI.Core.Tools;
+using System.Text;
 using Umbraco.Community.AdvancedPermissions.AI.Models;
 
-namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
+namespace Umbraco.Community.AdvancedPermissions.AI.Knowledge;
 
 /// <summary>
-/// Returns the conceptual reference for how this package's permissions work: the storage model, the
-/// resolution order, what each scope reaches, what Priority Override actually is, how Insert Options
-/// differ, how start nodes limit what a user can reach, and the backoffice navigation for changing a
-/// permission by hand.
+/// The conceptual reference for how this package's permissions work: the storage model, the resolution
+/// order, what each scope reaches, what Priority Override actually is, how Insert Options differ, how start
+/// nodes limit what a user can reach, and the backoffice navigation for changing a permission by hand. It
+/// is the content of the "Permission concepts" item of <see cref="AdvancedPermissionsKnowledgeSet"/>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the definitional half of the copilot's grounding, moved out of the always-on system prompt so
-/// its cost is paid only when a conceptual question is actually asked, rather than on every agent run.
+/// This is the definitional half of the copilot's grounding, kept out of the always-on system prompt so
+/// its cost is paid only when the model fetches it. It used to be the <c>uap_explain_concepts</c> tool;
+/// it became knowledge because the answer never depends on live data.
 /// </para>
 /// <para>
-/// It takes no arguments, does no I/O and touches no services — the answer is the same every time. The
-/// content is sourced from the base package's own <c>help-docs/en/concepts.md</c>, so the copilot explains
-/// the model exactly as the in-product help does; it is never invented here. The permanent grounding keeps
-/// only a pointer at this tool, because the failure this fixes was the model answering <i>confidently and
-/// wrongly</i> from its own assumptions — a reference is no use if the model never thinks to open it.
+/// The content is sourced from the base package's own <c>help-docs/en/concepts.md</c>, so the copilot
+/// explains the model exactly as the in-product help does; it is never invented here. The permanent
+/// grounding keeps a pointer at this item, because the model still decides when to fetch it, and the
+/// failure being fixed was the model answering <i>confidently and wrongly</i> from its own assumptions.
 /// </para>
 /// </remarks>
-[AITool("uap_explain_concepts", "Explain permission concepts", ScopeId = "advanced-permissions:read")]
-public sealed class ExplainConceptsTool : AIToolBase<ExplainConceptsArgs>
+internal static class ConceptsReference
 {
-    /// <summary>The conceptual reference. Static: the same answer every time, with no I/O.</summary>
-    private static readonly PermissionConcepts Concepts = new(
+    /// <summary>The reference, as structured sections. Static: the same every time, with no I/O.</summary>
+    public static PermissionConcepts Content { get; } = new(
         Model:
             "Access is governed by explicit Allow/Deny entries per user group (including the special 'All " +
             "Users' group, a baseline reaching every backoffice user) on content nodes, with tree " +
@@ -101,23 +100,32 @@ public sealed class ExplainConceptsTool : AIToolBase<ExplainConceptsArgs>
             "from deletion — add one entry: All Users group, Deny, that permission, scope 'This Node Only'. " +
             "Document-type creation is configured in the Document Type Permissions Editor, in the same " +
             "Editors group. For which of the four screens answers a particular question, and how they " +
-            "differ, call uap_explain_editors.");
+            "differ, read the 'Permission editors and viewers' reference.");
 
-    /// <inheritdoc />
-    public override string Description =>
-        "Explain how permissions work in this Umbraco site (the Advanced Permissions package). " +
-        "Call this for ANY conceptual question about the permission system — 'what is a Priority Override?', " +
-        "'how does inheritance work?', 'what does this scope mean?', 'what happens if I leave it unset?', " +
-        "'why does a Deny win?', 'what are Insert Options?', 'what are start nodes?', 'why is a page missing from the tree?', " +
-        "or 'how do I change a permission in the backoffice?'. " +
-        "Answer from what this returns and not from your own knowledge: the rules are specific to this package " +
-        "and differ from Umbraco's built-in permissions, so an answer assembled from general knowledge sounds " +
-        "convincing and is wrong. Takes no arguments and needs no node in context, so it works in any section. " +
-        "For the effective permissions on an actual node, use uap_explain_access instead.";
+    /// <summary>
+    /// Renders <see cref="Content"/> as the markdown the model reads: a title, then one heading per
+    /// section, so it can quote the part that answers the question rather than reciting the whole model.
+    /// </summary>
+    /// <returns>The markdown body of the "Permission concepts" knowledge item.</returns>
+    public static string ToMarkdown()
+    {
+        var sb = new StringBuilder();
+        sb.Append("# ").Append(AdvancedPermissionsKnowledgeSet.ConceptsItemName).Append('\n');
+        AppendSection(sb, "How access is stored", Content.Model);
+        AppendSection(sb, "What an entry is made of", Content.EntryAnatomy);
+        AppendSection(sb, "Precedence", Content.Precedence);
+        AppendSection(sb, "Scopes", Content.Scopes);
+        AppendSection(sb, "Priority Override", Content.PriorityOverride);
+        AppendSection(sb, "Insert Options", Content.InsertOptions);
+        AppendSection(sb, "Start nodes", Content.StartNodes);
+        AppendSection(sb, "How to change a permission", Content.HowToChange);
+        return sb.ToString();
+    }
 
-    /// <inheritdoc />
-    protected override Task<object> ExecuteAsync(
-        ExplainConceptsArgs args,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult<object>(Concepts);
+    /// <summary>Appends one <c>##</c> section.</summary>
+    /// <param name="sb">The markdown being built.</param>
+    /// <param name="heading">The section heading.</param>
+    /// <param name="text">The section text.</param>
+    private static void AppendSection(StringBuilder sb, string heading, string text) =>
+        sb.Append("\n## ").Append(heading).Append("\n\n").Append(text).Append('\n');
 }
