@@ -1,22 +1,18 @@
-using Umbraco.AI.Core.Tools;
+using Umbraco.Community.AdvancedPermissions.AI.Knowledge;
 using Umbraco.Community.AdvancedPermissions.AI.Models;
-using Umbraco.Community.AdvancedPermissions.AI.Tools;
 
 namespace Umbraco.Community.AdvancedPermissions.AI.Tests;
 
 /// <summary>
-/// Unit tests for <see cref="ExplainConceptsTool"/>. This tool carries the definitional half of the
-/// copilot's grounding — the half that used to sit in every conversation's system prompt. Each test pins
+/// Unit tests for <see cref="ConceptsReference"/>, the content of the "Permission concepts" knowledge
+/// item. It carries the definitional half of the copilot's grounding — the half that used to sit in every conversation's system prompt. Each test pins
 /// a fact the copilot was observed to get wrong (or would get wrong) when left to its own knowledge, so
 /// the reference cannot silently lose the correction it exists to deliver.
 /// </summary>
-public sealed class ExplainConceptsToolTests
+public sealed class ConceptsReferenceTests
 {
-    /// <summary>Executes the tool through the <see cref="IAITool"/> contract, as the runtime does.</summary>
-    /// <returns>The returned concepts.</returns>
-    private static async Task<PermissionConcepts> ExecuteAsync() =>
-        Assert.IsType<PermissionConcepts>(
-            await ((IAITool)new ExplainConceptsTool()).ExecuteAsync(new ExplainConceptsArgs(), CancellationToken.None));
+    /// <summary>The concepts reference, exactly as the knowledge item renders it.</summary>
+    private static PermissionConcepts Concepts => ConceptsReference.Content;
 
     /// <summary>
     /// Priority Override must be defined as a per-entry flag for when a user's groups disagree, and the
@@ -24,9 +20,9 @@ public sealed class ExplainConceptsToolTests
     /// entry overriding an inherited ancestor entry, which is ordinary precedence and not an override.
     /// </summary>
     [Fact]
-    public async Task PriorityOverride_IsDefinedAsPerEntryFlagAndNotInheritance()
+    public void PriorityOverride_IsDefinedAsPerEntryFlagAndNotInheritance()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.Contains("flag on a single entry", concepts.PriorityOverride, StringComparison.Ordinal);
         Assert.Contains("several user groups", concepts.PriorityOverride, StringComparison.Ordinal);
@@ -38,9 +34,9 @@ public sealed class ExplainConceptsToolTests
     /// an editor hunting the Permissions Editor for an entry that does not exist.
     /// </summary>
     [Fact]
-    public async Task Model_ExplainsUnsetMeansInheritNotAStoredDeny()
+    public void Model_ExplainsUnsetMeansInheritNotAStoredDeny()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.Contains("unset", concepts.Model, StringComparison.Ordinal);
         Assert.Contains("does not store a Deny", concepts.Model, StringComparison.Ordinal);
@@ -53,9 +49,9 @@ public sealed class ExplainConceptsToolTests
     /// need to improvise, and improvising is where the terminology slips.
     /// </summary>
     [Fact]
-    public async Task EntryAnatomy_ListsThePartsOfAnEntrySoTheModelNeedNotInvent()
+    public void EntryAnatomy_ListsThePartsOfAnEntrySoTheModelNeedNotInvent()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.Contains("user group", concepts.EntryAnatomy, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("permission", concepts.EntryAnatomy, StringComparison.OrdinalIgnoreCase);
@@ -68,9 +64,9 @@ public sealed class ExplainConceptsToolTests
 
     /// <summary>The four-step resolution order, highest first, exactly as the base package's help docs state it.</summary>
     [Fact]
-    public async Task Precedence_StatesTheResolutionOrder()
+    public void Precedence_StatesTheResolutionOrder()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.Contains("explicit Deny", concepts.Precedence, StringComparison.Ordinal);
         Assert.Contains("inherited Allow", concepts.Precedence, StringComparison.Ordinal);
@@ -78,9 +74,9 @@ public sealed class ExplainConceptsToolTests
 
     /// <summary>Each scope must say what it reaches, not merely name itself.</summary>
     [Fact]
-    public async Task Scopes_ExplainWhatEachOneReaches()
+    public void Scopes_ExplainWhatEachOneReaches()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.Contains("not its children", concepts.Scopes, StringComparison.Ordinal);
         Assert.Contains("everything beneath it", concepts.Scopes, StringComparison.Ordinal);
@@ -92,9 +88,9 @@ public sealed class ExplainConceptsToolTests
     /// content default over to creation would report the exact opposite of the truth.
     /// </summary>
     [Fact]
-    public async Task InsertOptions_InvertTheContentDefault()
+    public void InsertOptions_InvertTheContentDefault()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.Contains("creatable by default", concepts.InsertOptions, StringComparison.Ordinal);
     }
@@ -104,31 +100,18 @@ public sealed class ExplainConceptsToolTests
     /// answer points somewhere that exists rather than an invented menu path.
     /// </summary>
     [Fact]
-    public async Task HowToChange_NamesTheRealBackofficeNavigation()
+    public void HowToChange_NamesTheRealBackofficeNavigation()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.Contains("Users section", concepts.HowToChange, StringComparison.Ordinal);
         Assert.Contains("Editors", concepts.HowToChange, StringComparison.Ordinal);
         Assert.Contains("Content Permissions Editor", concepts.HowToChange, StringComparison.Ordinal);
         Assert.Contains("Document Type Permissions Editor", concepts.HowToChange, StringComparison.Ordinal);
-        Assert.Contains("uap_explain_editors", concepts.HowToChange, StringComparison.Ordinal);
+        Assert.Contains("'Permission editors and viewers'", concepts.HowToChange, StringComparison.Ordinal);
 
         // The v17 release sent editors to a sidebar group that does not exist.
         Assert.DoesNotContain("'Content Permissions' in the sidebar", concepts.HowToChange, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// The tool must be reachable under the package's read scope and carry a description that tells the
-    /// model to prefer it over its own knowledge — the tool is useless if the model never calls it.
-    /// </summary>
-    [Fact]
-    public void Description_TellsModelNotToAnswerFromItsOwnKnowledge()
-    {
-        var description = new ExplainConceptsTool().Description;
-
-        Assert.Contains("Priority Override", description, StringComparison.Ordinal);
-        Assert.Contains("own knowledge", description, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -145,18 +128,18 @@ public sealed class ExplainConceptsToolTests
     [InlineData("Administrators")]
     [InlineData("ignored")]
     [InlineData("No permission entry can change that")]
-    public async Task Concepts_StartNodes_CoversTheBaseBullets(string phrase)
+    public void Concepts_StartNodes_CoversTheBaseBullets(string phrase)
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.Contains(phrase, concepts.StartNodes, StringComparison.Ordinal);
     }
 
     /// <summary>v17 has no Library, so the start-node concept never mentions one.</summary>
     [Fact]
-    public async Task Concepts_StartNodes_NeverMentionsTheLibrary()
+    public void Concepts_StartNodes_NeverMentionsTheLibrary()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.DoesNotContain("Library", concepts.StartNodes, StringComparison.OrdinalIgnoreCase);
     }
@@ -166,9 +149,9 @@ public sealed class ExplainConceptsToolTests
     /// A Deny takes it away. Without this the copilot suggests an Allow to make a type appear.
     /// </summary>
     [Fact]
-    public async Task Concepts_InsertOptions_AllowOnlyKeepsAType()
+    public void Concepts_InsertOptions_AllowOnlyKeepsAType()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.Contains("never adds", concepts.InsertOptions, StringComparison.Ordinal);
         Assert.Contains("takes it away", concepts.InsertOptions, StringComparison.Ordinal);
@@ -176,9 +159,9 @@ public sealed class ExplainConceptsToolTests
 
     /// <summary>Creating under a node needs access to it, so Insert Options also depend on start nodes.</summary>
     [Fact]
-    public async Task Concepts_InsertOptions_MentionsStartNodes()
+    public void Concepts_InsertOptions_MentionsStartNodes()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
 
         Assert.Contains("start nodes", concepts.InsertOptions, StringComparison.Ordinal);
     }
@@ -188,9 +171,9 @@ public sealed class ExplainConceptsToolTests
     /// tree, or an empty tree, comes from Read being denied or the page being outside the start nodes.
     /// </summary>
     [Fact]
-    public async Task Concepts_ExplainsMissingFromTree()
+    public void Concepts_ExplainsMissingFromTree()
     {
-        var concepts = await ExecuteAsync();
+        var concepts = Concepts;
         var text = concepts.Model + " " + concepts.StartNodes;
 
         Assert.Contains("missing from the tree", text, StringComparison.Ordinal);
@@ -198,13 +181,16 @@ public sealed class ExplainConceptsToolTests
         Assert.Contains("Read", text, StringComparison.Ordinal);
     }
 
-    /// <summary>The description names start nodes and the missing-page question, so the model calls this for them.</summary>
+    /// <summary>
+    /// The two reference tools were replaced by knowledge items, so the content must not send the model to
+    /// a tool that no longer exists — it names the other knowledge item instead.
+    /// </summary>
     [Fact]
-    public void Description_CoversStartNodesAndMissingPages()
+    public void Content_NamesNoRemovedTool()
     {
-        var description = new ExplainConceptsTool().Description;
+        var markdown = ConceptsReference.ToMarkdown();
 
-        Assert.Contains("start nodes", description, StringComparison.Ordinal);
-        Assert.Contains("missing from the tree", description, StringComparison.Ordinal);
+        Assert.DoesNotContain("uap_explain_concepts", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("uap_explain_editors", markdown, StringComparison.Ordinal);
     }
 }

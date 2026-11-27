@@ -35,7 +35,6 @@ public sealed class ToolSchemaTerminologyTests
     [
         typeof(ExplainAccessArgs),
         typeof(AuditPermissionsArgs),
-        typeof(ExplainConceptsArgs),
         typeof(ExplainSubject),
         typeof(ExplainAspect),
         typeof(ExplainResponseFormat),
@@ -56,10 +55,6 @@ public sealed class ToolSchemaTerminologyTests
         typeof(FriendlyAuditFinding),
         typeof(FriendlyAuditReport),
         typeof(NodeRef),
-        typeof(PermissionConcepts),
-        typeof(ExplainEditorsArgs),
-        typeof(EditorGuide),
-        typeof(EditorSurface),
         typeof(StartNodeReach),
         typeof(StartNodeRef),
     ];

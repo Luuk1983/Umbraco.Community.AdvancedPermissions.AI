@@ -1,6 +1,11 @@
 using NSubstitute;
+using Umbraco.AI.Core;
+using Umbraco.AI.Core.Contexts.KnowledgeSets;
+using Umbraco.AI.Core.RuntimeContext;
 using Umbraco.Cms.Core.Security;
 using Umbraco.Cms.Core.Services;
+using Umbraco.Community.AdvancedPermissions.AI.Context;
+using Umbraco.Community.AdvancedPermissions.AI.Knowledge;
 using Umbraco.Community.AdvancedPermissions.AI.Services;
 using Umbraco.Community.AdvancedPermissions.AI.Tools;
 using Umbraco.Community.AdvancedPermissions.Core.Interfaces;
@@ -60,9 +65,43 @@ public sealed class ToolDescriptionTerminologyTests
     {
         { "uap_explain_access", NewExplainAccess().Description },
         { "uap_audit_permissions", NewAudit().Description },
-        { "uap_explain_concepts", new ExplainConceptsTool().Description },
-        { "uap_explain_editors", new ExplainEditorsTool().Description },
     };
+
+    /// <summary>
+    /// Every piece of knowledge text the model sees: the set description and the two item descriptions
+    /// (listed in the system prompt of every request), and the two item bodies (fetched on demand).
+    /// </summary>
+    /// <returns>Source label and text pairs.</returns>
+    public static TheoryData<string, string> AllKnowledgeText()
+    {
+        var set = new AdvancedPermissionsKnowledgeSet();
+        var items = ((IAIKnowledgeSet)set).GetItemsAsync(CancellationToken.None).GetAwaiter().GetResult();
+        var data = new TheoryData<string, string> { { "set description", set.Description ?? string.Empty } };
+        foreach (var item in items)
+        {
+            data.Add($"{item.Key} description", item.Description ?? string.Empty);
+            data.Add($"{item.Key} content", item.GetContentAsync(CancellationToken.None).GetAwaiter().GetResult());
+        }
+
+        return data;
+    }
+
+    /// <summary>The always-on grounding for a document and for no focused entity.</summary>
+    /// <returns>Each variant of the grounding text.</returns>
+    private static IEnumerable<string> AllGroundingVariants()
+    {
+        foreach (var entityType in new[] { "document", null })
+        {
+            var context = new AIRuntimeContext([]);
+            if (entityType is not null)
+            {
+                context.SetValue(Constants.ContextKeys.EntityType, entityType);
+            }
+
+            new AdvancedPermissionsGroundingContributor().Contribute(context);
+            yield return Assert.Single(context.SystemMessageParts);
+        }
+    }
 
     /// <summary>
     /// Phrases that contradict the terminology rules. Each was found in a real description during the
@@ -102,6 +141,44 @@ public sealed class ToolDescriptionTerminologyTests
         Assert.True(
             violations.Count == 0,
             $"{toolName} description contradicts the copilot's own terminology rules: {string.Join(", ", violations)}");
+    }
+
+    /// <summary>
+    /// The knowledge text teaches by example exactly like a tool description does, and its bodies are the
+    /// longest model-visible prose the package ships, so it answers to the same banned list.
+    /// </summary>
+    /// <param name="source">Which piece of knowledge text is checked.</param>
+    /// <param name="text">The text.</param>
+    [Theory]
+    [MemberData(nameof(AllKnowledgeText))]
+    public void KnowledgeText_UsesNoBannedTerminology(string source, string text)
+    {
+        var violations = BannedPhrases
+            .Where(p => text.Contains(p, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        Assert.True(
+            violations.Count == 0,
+            $"Knowledge {source} contradicts the copilot's own terminology rules: {string.Join(", ", violations)}");
+    }
+
+    /// <summary>
+    /// <c>uap_explain_concepts</c> and <c>uap_explain_editors</c> became knowledge items. Any model-visible
+    /// text that still names them would send the model to call a tool that no longer exists, so every
+    /// source is checked: the remaining tools' descriptions, the knowledge text, and the grounding.
+    /// </summary>
+    [Fact]
+    public void ModelVisibleText_NeverNamesARemovedTool()
+    {
+        var texts = AllDescriptions().Select(row => (string)row[1])
+            .Concat(AllKnowledgeText().Select(row => (string)row[1]))
+            .Concat(AllGroundingVariants());
+
+        Assert.All(texts, text =>
+        {
+            Assert.DoesNotContain("uap_explain_concepts", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("uap_explain_editors", text, StringComparison.Ordinal);
+        });
     }
 
     /// <summary>

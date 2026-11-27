@@ -23,8 +23,9 @@ Central versions live in `Directory.Packages.props`:
   bound packs fine locally but **nuget.org rejects it at push time**
   (`400 BadRequest: invalid Version: '18.0.0-0'`), which fails the release tag, not any test. The
   published base package's own nuspec uses plain `[17.4.0, 18.0.0)` bounds — that form is proven.
-- `Umbraco.AI.Startup` (the package's only other dependency) is pinned `[17.0.0,18.0.0)` — same plain
-  upper bound; Umbraco.AI majors track the CMS major. It must be **Startup, not `Umbraco.AI.Core`**:
+- `Umbraco.AI.Startup` (the package's only other dependency) is pinned `[17.2.0,18.0.0)` — same plain
+  upper bound; Umbraco.AI majors track the CMS major. The **17.2.0** floor is the first v17 release with
+  knowledge sets, which the package's reference text ships as. It must be **Startup, not `Umbraco.AI.Core`**:
   Core alone packs fine, but it ships a property value converter that Umbraco type-scans and that
   needs `IAIContextService`, which only Startup's composer registers — so a site without the Umbraco AI
   runtime failed to boot in Development. Startup flows Core, which the code compiles against. Not the
@@ -33,8 +34,8 @@ Central versions live in `Directory.Packages.props`:
   `Umbraco.AI.Startup` before tagging. The `Umbraco.AI.*` TestSite packages are pinned to the 17.x line
   but never flow into the nupkg.
 - The package declares **no** direct `Umbraco.Cms.*` — its floor is implicit and **computed** from the
-  dependencies' nuspecs. Today that is **17.4.0**: `Umbraco.AI.Startup` 17.0.0 (what our floor resolves
-  to, along with the `Core`/`Persistence`/`Web` 17.0.0 it pins) requires
+  dependencies' nuspecs. Today that is **17.4.0**: `Umbraco.AI.Startup` 17.2.0 (what our floor resolves
+  to, along with the `Core`/`Persistence`/`Web` 17.2.0 it pins) requires
   `Umbraco.Cms.* [17.4.0, 17.999.999)` and the base package 17.5.0 requires `[17.4.0, 18.0.0)`, so the
   floor is 17.4.0. Re-derive it each release rather than repeating it (it was documented as 17.4.2 for a
   while, which was wrong), and keep the README's Requirements section in step. The only explicit
@@ -64,8 +65,9 @@ the body (it summarises merged PRs since the previous release you pick), then cu
 ## Documentation to keep in sync
 
 - `README.md` — the copilot tools and example prompts; keep in step with the actual `[AITool]`s
-  (currently **three**: `uap_explain_access`, `uap_audit_permissions`, `uap_explain_concepts`).
-  Prerequisites must state the correct Umbraco floor (**17.4.0+**) and `Umbraco.AI` version. The
+  (currently **two**: `uap_explain_access`, `uap_audit_permissions`), and with the knowledge set's two
+  items ("Permission concepts", "Permission editors and viewers"). Prerequisites must state the correct
+  Umbraco floor (**17.4.0+**) and `Umbraco.AI` version (**17.2.0+**). The
   **Setting up Umbraco AI** section is the most load-bearing part of the README — the tools are
   auto-discovered but do nothing until the chat agent's Governance allows the
   `advanced-permissions:read` scope. Re-check that flow against the AI section's UI each release.

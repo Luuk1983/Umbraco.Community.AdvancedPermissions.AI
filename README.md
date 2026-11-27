@@ -82,8 +82,8 @@ not decide anything. It picks the right question to ask, then puts the result in
 ## Requirements
 
 - Umbraco CMS 17.4.0 or newer, on .NET 10. This floor comes from Umbraco AI.
-- [Umbraco AI](https://github.com/umbraco/Umbraco.AI) on the 17 line, installed and configured, with a
-  working copilot chat. This package brings the Umbraco AI runtime with it, but not its backoffice
+- [Umbraco AI](https://github.com/umbraco/Umbraco.AI) 17.2.0 or newer on the 17 line (the first release
+  with knowledge sets), installed and configured, with a working copilot chat. This package brings the Umbraco AI runtime with it, but not its backoffice
   screens: install the `Umbraco.AI` package for the AI section, and `Umbraco.AI.Agent.Copilot` for the
   chat itself.
 - Advanced Permissions for Umbraco 17.5.0 or newer, which arrives automatically as a dependency. 17.5.0
@@ -113,7 +113,7 @@ step 5, which is the only step specific to this package.
 4. **Set up a default chat agent** for the copilot. Without one there is no chat for these tools to be
    called from.
 5. **Allow this package's tools on that agent.** Open the chat agent, go to Governance, and under
-   Allowed Tool Scopes tick "Advanced Permissions (read)". All four tools sit under that one scope.
+   Allowed Tool Scopes tick "Advanced Permissions (read)". Both tools sit under that one scope.
 
 ![Allowing the Advanced Permissions (read) tool scope on the chat agent](https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/agent_tool_scopes.jpg)
 
@@ -123,13 +123,18 @@ permission questions from its own general knowledge. Because it sits under a sin
 is also how you take the tools away again, and Umbraco AI's per-user-group governance applies to it like
 any other scope.
 
+The package's reference text (how the permission rules work, and which screen to use) needs no step at
+all. It ships as an Umbraco AI knowledge set, which Umbraco AI makes available to every agent on its own,
+so even a copilot without the scope can explain the rules instead of guessing them.
+
 To confirm it works, open a content node, start a copilot chat and ask "who can publish here?". The
 answer should name your real user groups.
 
 ## The tools
 
-Four tools are registered, all under the `advanced-permissions:read` scope. The copilot picks between
-them; you never call them yourself.
+Two tools are registered, both under the `advanced-permissions:read` scope. The copilot picks between
+them; you never call them yourself. The reference text the copilot needs alongside them is not a tool:
+see [Built-in knowledge](#built-in-knowledge).
 
 Like the base package's viewers, the tools only let someone with access to the Users section look up
 other people's permissions. Without it, an editor can still ask about their own access, but asking about
@@ -196,24 +201,36 @@ configuration is correct in general. In both domains the whole-configuration sco
 covers every live document node plus the Default permissions row, so entries left behind on deleted or
 trashed nodes are not included.
 
-### `uap_explain_concepts`
+## Built-in knowledge
 
-Takes no arguments and reads nothing. It returns the conceptual reference: how permissions are stored,
-how competing entries are resolved, what each scope reaches, what Priority Override actually is, how
-Insert Options differ, how start nodes limit what a user can reach (and why a page can be missing from the
-tree), and where to change a permission in the backoffice. It exists because the copilot
-answered these questions confidently and wrongly when left to its own knowledge. The wording comes from
-the base package's own help documentation, so the copilot explains the model exactly as the in-product
-help does.
+Some answers do not depend on anything in your site: how the permission rules work, and which of the
+four permission screens to use. Those are not tools but an Umbraco AI **knowledge set**, "Advanced
+Permissions", with two items. The rule the package follows is simple: if an answer depends on live
+data it is a tool, and if it does not it is knowledge.
 
-### `uap_explain_editors`
+Umbraco AI switches a knowledge set on by itself, for every agent, with nothing to configure. Each item's
+name and one-line description are listed for the model in every chat, and the model reads the full text
+when a question needs it. The package's own instructions to the copilot point at both items by name, so
+it looks them up rather than answering from memory.
 
-Takes no arguments and reads nothing. It returns a guide to the base package's four screens: the Content
-Permissions Editor and Document Type Permissions Editor (under Editors in the Users section) and the Access
-Viewer and Insert Options Viewer (under Viewers). It explains how to pick the right one, how an editor
-differs from a viewer, how content permissions differ from Insert Options, and for each screen what it does
-not do and which one to use instead. It exists because the screen names are easy to mix up, and because
-the copilot is told never to describe a menu path from memory.
+The wording comes from the base package's own help documentation, so the copilot explains the model
+exactly as the in-product help does.
+
+### Permission concepts
+
+How permissions are stored, how competing entries are resolved, what each scope reaches, what Priority
+Override actually is, how Insert Options differ, how start nodes limit what a user can reach (and why a
+page can be missing from the tree), and where to change a permission in the backoffice. It exists because
+the copilot answered these questions confidently and wrongly when left to its own knowledge.
+
+### Permission editors and viewers
+
+A guide to the base package's four screens: the Content Permissions Editor and Document Type Permissions
+Editor (under Editors in the Users section) and the Access Viewer and Insert Options Viewer (under
+Viewers). It explains how to pick the right one, how an editor differs from a viewer, how content
+permissions differ from Insert Options, and for each screen what it does not do and which one to use
+instead. It exists because the screen names are easy to mix up, and because the copilot is told never to
+describe a menu path from memory.
 
 ## Security
 
@@ -223,8 +240,9 @@ the copilot is told never to describe a menu path from memory.
 - No privilege escalation by design. Answers come from the same resolver the backoffice itself uses, so
   the model cannot invent or grant a permission. It can only report what your engine computes, and a
   suggested fix names only user groups and nodes already present in the reasoning.
-- Everything sits under the `advanced-permissions:read` scope, so Umbraco AI's per-user-group governance
-  can allow or deny it like any other tool.
+- Every tool sits under the `advanced-permissions:read` scope, so Umbraco AI's per-user-group governance
+  can allow or deny it like any other tool. The knowledge set is not gated that way: it holds only the
+  package's static help text, never anything read from your site.
 - Looking up anyone else's permissions, and auditing, needs access to the Users section, the same rule the
   base package applies to its own viewers. Asking about your own access never does.
 

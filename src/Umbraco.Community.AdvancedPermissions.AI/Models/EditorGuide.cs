@@ -17,7 +17,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// What this surface does <b>not</b> do, and which of the other three to use for that instead.
 /// </param>
 /// <param name="Navigation">Where to find it in the backoffice.</param>
-public sealed record EditorSurface(
+internal sealed record EditorSurface(
     string Name,
     string Purpose,
     string UseWhen,
@@ -32,7 +32,7 @@ public sealed record EditorSurface(
 /// Structured so that the <i>boundaries</i> come first and the per-surface descriptions come last. The
 /// failure this reference exists to prevent is not "the model cannot describe the Access Viewer", it is
 /// "the model answers about the wrong screen" — or describes a menu path that does not exist, as the
-/// concepts tool did on the first v17 release. Being told the distinction does more than reading four
+/// concepts reference (then a tool) did on the first v17 release. Being told the distinction does more than reading four
 /// descriptions.
 /// </remarks>
 /// <param name="HowToChoose">
@@ -49,7 +49,7 @@ public sealed record EditorSurface(
 /// </param>
 /// <param name="Surfaces">The four editors and viewers, each with its boundaries.</param>
 /// <param name="Navigation">How the Users section sidebar is laid out, and who can open it.</param>
-public sealed record EditorGuide(
+internal sealed record EditorGuide(
     string HowToChoose,
     string EditorVersusViewer,
     string PermissionsVersusCreateFilters,

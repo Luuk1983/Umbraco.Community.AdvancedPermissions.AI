@@ -1,11 +1,7 @@
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Umbraco.AI.Core;
 using Umbraco.AI.Core.RuntimeContext;
-using Umbraco.AI.Core.Tools;
 using Umbraco.Community.AdvancedPermissions.AI.Context;
-using Umbraco.Community.AdvancedPermissions.AI.Models;
-using Umbraco.Community.AdvancedPermissions.AI.Tools;
 
 namespace Umbraco.Community.AdvancedPermissions.AI.Tests;
 
@@ -23,7 +19,10 @@ public sealed class V17ScreenNameTests
     /// <summary>A bare "Permissions Editor": one not preceded by "Content" or "Document Type".</summary>
     private static readonly Regex BareEditorName = new(@"(?<!Content |Document Type )Permissions Editor", RegexOptions.Compiled);
 
-    /// <summary>Every tool description, the concepts and editors references, and both grounding halves.</summary>
+    /// <summary>
+    /// Every tool description, every piece of knowledge text (set and item descriptions, and both rendered
+    /// references), and both grounding halves.
+    /// </summary>
     /// <returns>Each named piece of model-visible text.</returns>
     public static TheoryData<string, string> ModelVisibleText()
     {
@@ -33,19 +32,15 @@ public sealed class V17ScreenNameTests
             data.Add($"description of {row[0]}", (string)row[1]);
         }
 
-        data.Add("uap_explain_concepts result", Serialize(new ExplainConceptsTool(), new ExplainConceptsArgs()));
-        data.Add("uap_explain_editors result", Serialize(new ExplainEditorsTool(), new ExplainEditorsArgs()));
+        foreach (var row in ToolDescriptionTerminologyTests.AllKnowledgeText().Cast<object[]>())
+        {
+            data.Add($"knowledge {row[0]}", (string)row[1]);
+        }
+
         data.Add("grounding (any section)", Grounding(entityType: null));
         data.Add("grounding (document)", Grounding("document"));
         return data;
     }
-
-    /// <summary>Runs a no-argument tool and serializes what the model would receive.</summary>
-    /// <param name="tool">The tool.</param>
-    /// <param name="args">Its (empty) arguments.</param>
-    /// <returns>The serialized result.</returns>
-    private static string Serialize(IAITool tool, object args) =>
-        JsonSerializer.Serialize(tool.ExecuteAsync(args, CancellationToken.None).GetAwaiter().GetResult());
 
     /// <summary>Collects the grounding the contributor adds for a conversation.</summary>
     /// <param name="entityType">The focused entity type, or none.</param>
