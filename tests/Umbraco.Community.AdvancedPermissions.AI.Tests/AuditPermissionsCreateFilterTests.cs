@@ -80,7 +80,9 @@ public sealed class AuditPermissionsCreateFilterTests
             new PermissionPresenter(_userGroupService, _entityService, _contentTypeService),
             _entityService,
             _treeResolver,
-            _userGroupService);
+            _userGroupService,
+            TestGuards.AllowAll(),
+            TestGuards.NeverBlocked());
 
     /// <summary>Executes the tool through its public interface.</summary>
     /// <param name="args">The arguments to run with.</param>

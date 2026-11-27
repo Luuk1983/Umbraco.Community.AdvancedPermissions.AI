@@ -71,7 +71,31 @@ public sealed class ExplainConceptsTool : AIToolBase<ExplainConceptsArgs>
             "Document-type 'Insert Options' control which document types can be created under a node, and " +
             "work the other way round from node permissions: a document type is creatable by default. It " +
             "becomes unavailable either because it is not an allowed child of that parent (filtered out of " +
-            "the list by Umbraco's own configuration) or because a Deny entry blocks it.",
+            "the list by Umbraco's own configuration) or because a Deny entry blocks it. Creating under a node " +
+            "also needs access to that node through start nodes: a parent outside the subject's start nodes " +
+            "blocks every type, whatever the entries say. In the Library, element types are only creatable for " +
+            "someone with a Library start node.",
+        StartNodes:
+            "Start nodes decide which part of the content tree a user can reach at all, and Umbraco checks them " +
+            "before any permission — so a node outside them is blocked whatever the entries say. No permission " +
+            "entry can change that; start nodes are set in the Users section, on the user group or on the user " +
+            "account. A user group has one start node, root access, or none, and a group without a start node " +
+            "gives no content access. A user's groups combine: they can reach every group's start node, and a " +
+            "higher start node covers a lower one on the same branch. Start nodes and permissions are separate, " +
+            "so a permission from one group also applies inside a start node that another group provides. A " +
+            "start node set on the user account replaces any group start node above or below it on the same " +
+            "branch, even root access; on a branch that no group start node covers, it adds access. " +
+            "Administrators reach everything only because their group has root access — there is no other " +
+            "exception. Deleted or trashed start nodes are ignored; if a user's own start node is deleted, they " +
+            "fall back to the group start nodes. The Library has its own start nodes (a Library folder, the whole " +
+            "Library, or none), which combine exactly the same way and are checked before any Library " +
+            "permission. After an upgrade to Umbraco 18, only the Administrators group has access to the whole " +
+            "Library: every other existing user group has no Library start node, so its users can't reach the " +
+            "Library until the group is given one. The Access Viewers show a node outside the start nodes as a " +
+            "blocked cell — 'Browse only (start nodes)' for an ancestor of a start node, which Umbraco shows so " +
+            "users can browse down to it, and 'Not visible (start nodes)' for everything else. Some pickers can " +
+            "be configured to ignore start nodes, and backoffice search applies them slightly differently; the " +
+            "viewers show the tree and editor rules.",
         HowToChange:
             "Everything is in the backoffice's Users section, whose sidebar carries four groups — one per " +
             "domain: 'Content Permissions', 'Document Type Permissions', 'Library Permissions' and 'Library " +
@@ -91,7 +115,8 @@ public sealed class ExplainConceptsTool : AIToolBase<ExplainConceptsArgs>
         "Explain how permissions work in this Umbraco site (the Advanced Permissions package). " +
         "Call this for ANY conceptual question about the permission system — 'what is a Priority Override?', " +
         "'how does inheritance work?', 'what does this scope mean?', 'what happens if I leave it unset?', " +
-        "'why does a Deny win?', 'what are Insert Options?', or 'how do I change a permission in the backoffice?'. " +
+        "'why does a Deny win?', 'what are Insert Options?', 'what are start nodes / why can't someone see a page or " +
+        "the Library at all?', or 'how do I change a permission in the backoffice?'. " +
         "Answer from what this returns and not from your own knowledge: the rules are specific to this package " +
         "and differ from Umbraco's built-in permissions, so an answer assembled from general knowledge sounds " +
         "convincing and is wrong. Takes no arguments and needs no node in context, so it works in any section. " +

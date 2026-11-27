@@ -66,6 +66,10 @@ public sealed class ToolSchemaTerminologyTests
         typeof(ExplainEditorsArgs),
         typeof(EditorGuide),
         typeof(EditorSurface),
+        typeof(StartNodeReach),
+        typeof(StartNodeRef),
+        typeof(LibraryItemCandidates),
+        typeof(LibraryItemCandidate),
     ];
 
     /// <summary>
@@ -143,6 +147,7 @@ public sealed class ToolSchemaTerminologyTests
         // role-named members on purpose, and the presenter converts them before anything reaches the
         // model, so neither is ever serialized.
         [typeof(AuditFinding)] = "internal carrier of base-package values; converted by the presenter",
+        [typeof(LibraryItemLookup)] = "internal outcome of the name lookup; the tool returns its candidates or an AccessError instead",
         [typeof(RemediationOption)] = "internal carrier of base-package values; converted by the presenter",
         [typeof(AuditReport)] = "internal; projected to FriendlyAuditReport before the model sees it",
         [typeof(RemediationActionKind)] = "internal ranking/wording driver on RemediationOption",

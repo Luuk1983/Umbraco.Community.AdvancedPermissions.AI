@@ -206,4 +206,21 @@ public sealed class GroundingContributorLibraryTests
 
         Assert.Equal(conceptsOnly, Contribute("some-future-entity-type"));
     }
+
+    /// <summary>
+    /// "Element types are creatable by default" is only true for someone who can reach the Library: after an
+    /// upgrade to Umbraco 18 every group but Administrators has no Library start node. The Library half
+    /// must say so, and must name start nodes as a cause.
+    /// </summary>
+    /// <param name="entityType">A Library entity type.</param>
+    [Theory]
+    [MemberData(nameof(LibraryEntityTypes))]
+    public void Contribute_LibraryContext_MentionsTheUpgradeTrap(string entityType)
+    {
+        var grounding = Contribute(entityType);
+
+        Assert.Contains("Library start node", grounding, StringComparison.Ordinal);
+        Assert.Contains("Umbraco 18", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("before concluding the cause is structural", grounding, StringComparison.Ordinal);
+    }
 }

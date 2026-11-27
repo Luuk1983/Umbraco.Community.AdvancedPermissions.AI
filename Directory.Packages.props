@@ -10,10 +10,11 @@
          stable upper bound: a "-0" bound packs fine but nuget.org rejects it at push time
          (400 BadRequest: invalid Version: '19.0.0-0'), and the published base package's own
          nuspec uses plain "[18.0.0, 19.0.0)" bounds — that is the proven form.
-         The floor is 18.1.0, NOT 18.0.0: the Library element APIs this package now calls
-         (IElementNodePermissionService, AdvancedPermissionsConstants.ElementVerbs,
-         VerbElementCreateOfType) were introduced in 18.1.0. -->
-    <PackageVersion Include="Umbraco.Community.AdvancedPermissions" Version="[18.1.0,19.0.0)" />
+         The floor is 18.3.0: the tools account for start nodes through the base package's
+         IStartNodeAccessService, which 18.3.0 is the first release to register. (The Library
+         element APIs - IElementNodePermissionService, ElementVerbs, VerbElementCreateOfType -
+         date from 18.1.0.) -->
+    <PackageVersion Include="Umbraco.Community.AdvancedPermissions" Version="[18.3.0,19.0.0)" />
     <!-- Umbraco AI — the runtime. The package references Umbraco.AI.Startup, which registers Umbraco
          AI's services and flows Umbraco.AI.Core (the [AITool]/[AIToolScope] attributes,
          IRuntimeContextContributor, the AIRuntimeContextContributors() builder extension) and the

@@ -58,7 +58,9 @@ public sealed class AuditPermissionsToolTests
             new PermissionPresenter(_userGroupService, _entityService, _contentTypeService),
             _entityService,
             _treeResolver,
-            _userGroupService);
+            _userGroupService,
+            _lookupGuard,
+            TestGuards.NeverBlocked());
 
     /// <summary>The mocked user group service backing the real presenter.</summary>
     private readonly IUserGroupService _userGroupService = Substitute.For<IUserGroupService>();
@@ -68,6 +70,9 @@ public sealed class AuditPermissionsToolTests
 
     /// <summary>The mocked content-type service backing the real presenter.</summary>
     private readonly IContentTypeService _contentTypeService = Substitute.For<IContentTypeService>();
+
+    /// <summary>The mocked lookup guard; allows auditing unless a test says otherwise.</summary>
+    private readonly IPermissionLookupGuard _lookupGuard = TestGuards.AllowAll();
 
     /// <summary>
     /// Initializes the test fixture with a benign default user-group page so the real presenter's
@@ -149,7 +154,7 @@ public sealed class AuditPermissionsToolTests
         Assert.Equal("Risk", broad.Severity);
         Assert.Equal("All Users", broad.UserGroup);
         Assert.Equal("Update", broad.Permission);
-        Assert.Equal("All content (root-level default)", broad.Node);
+        Assert.Equal("Default permissions", broad.Node);
 
         // No raw identifiers anywhere in the serialized friendly report.
         var json = JsonSerializer.Serialize(report);
@@ -300,6 +305,13 @@ public sealed class AuditPermissionsToolTests
         const string roleAlias = "editors";
         var nodeKey = Guid.NewGuid();
 
+        // The tool resolves the user group before auditing it, so the group has to exist.
+        var editors = Substitute.For<IUserGroup>();
+        editors.Alias.Returns(roleAlias);
+        editors.Name.Returns("Editors");
+        var groups = new PagedModel<IUserGroup>(1, new[] { editors });
+        _userGroupService.GetAllAsync(Arg.Any<int>(), Arg.Any<int>()).Returns(groups);
+
         var entries = new List<AdvancedPermissionEntry>
         {
             new(Guid.NewGuid(), nodeKey, roleAlias, "Umb.Document.Read", PermissionState.Allow, PermissionScope.ThisNodeOnly),
@@ -400,5 +412,23 @@ public sealed class AuditPermissionsToolTests
         var e = Substitute.For<IEntitySlim>();
         e.Key.Returns(key);
         return e;
+    }
+
+    /// <summary>
+    /// The audit reads every user group's entries, so without Users-section access it is refused before
+    /// any repository is read.
+    /// </summary>
+    [Fact]
+    public async Task WithoutUsersSection_ReturnsError()
+    {
+        _lookupGuard.CanInspectOthers().Returns(false);
+
+        var result = await ((IAITool)CreateTool()).ExecuteAsync(
+            new AuditPermissionsArgs(AuditScope.All), CancellationToken.None);
+
+        Assert.Equal("Auditing permissions needs access to the Users section.", Assert.IsType<AccessError>(result).Error);
+        Assert.Empty(_repository.ReceivedCalls());
+        Assert.Empty(_elementRepository.ReceivedCalls());
+        Assert.Empty(_docTypeRepository.ReceivedCalls());
     }
 }

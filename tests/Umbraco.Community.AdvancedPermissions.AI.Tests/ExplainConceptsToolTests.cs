@@ -125,4 +125,40 @@ public sealed class ExplainConceptsToolTests
         Assert.Contains("Priority Override", description, StringComparison.Ordinal);
         Assert.Contains("own knowledge", description, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Start nodes are a concept of their own (base <c>concepts.md</c> "Start nodes"): checked before any
+    /// permission, per group or none, combining across groups, replaced by a user-account start node, no
+    /// Administrator exception, a separate set for the Library, and the Umbraco 18 upgrade state.
+    /// </summary>
+    [Fact]
+    public async Task StartNodes_CoversTheBaseBullets()
+    {
+        var concepts = await ExecuteAsync();
+
+        Assert.Contains("before any permission", concepts.StartNodes, StringComparison.Ordinal);
+        Assert.Contains("no content access", concepts.StartNodes, StringComparison.Ordinal);
+        Assert.Contains("combine", concepts.StartNodes, StringComparison.Ordinal);
+        Assert.Contains("user account", concepts.StartNodes, StringComparison.Ordinal);
+        Assert.Contains("Administrators", concepts.StartNodes, StringComparison.Ordinal);
+        Assert.Contains("Library", concepts.StartNodes, StringComparison.Ordinal);
+        Assert.Contains("Umbraco 18", concepts.StartNodes, StringComparison.Ordinal);
+        Assert.Contains("No permission entry", concepts.StartNodes, StringComparison.Ordinal);
+    }
+
+    /// <summary>Creating under a node also needs access to it, so Insert Options mention start nodes.</summary>
+    [Fact]
+    public async Task InsertOptions_MentionsStartNodes()
+    {
+        var concepts = await ExecuteAsync();
+
+        Assert.Contains("start node", concepts.InsertOptions, StringComparison.Ordinal);
+    }
+
+    /// <summary>The description sends start-node questions here, so the model looks them up instead of guessing.</summary>
+    [Fact]
+    public void Description_MentionsStartNodes()
+    {
+        Assert.Contains("start nodes", new ExplainConceptsTool().Description, StringComparison.Ordinal);
+    }
 }

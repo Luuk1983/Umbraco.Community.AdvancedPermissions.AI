@@ -55,6 +55,9 @@ public sealed class AuditPermissionsDomainTests
     /// <summary>The mocked Library tree reader.</summary>
     private readonly IElementTreeResolver _treeResolver = Substitute.For<IElementTreeResolver>();
 
+    /// <summary>The mocked start-node reach resolver; nobody is blocked unless a test says so.</summary>
+    private readonly IStartNodeReachResolver _reach = Substitute.For<IStartNodeReachResolver>();
+
     /// <summary>
     /// Exposes an "Editors" group so the presenter can resolve a non-All-Users alias to a display name.
     /// The All Users alias short-circuits inside the presenter, so only tests using a real group alias
@@ -80,7 +83,9 @@ public sealed class AuditPermissionsDomainTests
             new PermissionPresenter(_userGroupService, _entityService, _contentTypeService),
             _entityService,
             _treeResolver,
-            _userGroupService);
+            _userGroupService,
+            TestGuards.AllowAll(),
+            _reach);
 
     /// <summary>Executes the tool through its public interface.</summary>
     /// <param name="args">The arguments to run with.</param>
@@ -251,5 +256,125 @@ public sealed class AuditPermissionsDomainTests
             "userGroupAlias",
             Assert.IsType<AccessError>(result).Error,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A Library entry for the Editors group at a Library node.</summary>
+    /// <param name="state">The entry's state.</param>
+    /// <param name="role">The user group alias.</param>
+    /// <returns>The entry.</returns>
+    private static AdvancedPermissionEntry LibraryEntry(PermissionState state, string role = "editors") =>
+        new(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            role,
+            AdvancedPermissionsConstants.VerbElementDelete,
+            state,
+            PermissionScope.ThisNodeAndDescendants);
+
+    /// <summary>A reach as the resolver returns it for a group with no Library start node.</summary>
+    private static readonly StartNodeReach NoLibraryAccess = new(
+        "Not visible (start nodes)",
+        "This user group has no Library start node, so on its own it gives no Library access. Everything is blocked.",
+        [],
+        "Library start nodes are set in the Users section, on the user group or on the user account. No permission entry can change this.");
+
+    /// <summary>
+    /// The Umbraco 18 upgrade trap: a group with Library Allow entries but no Library start node gets
+    /// nothing from them, because its users cannot reach the Library at all.
+    /// </summary>
+    [Fact]
+    public async Task Library_GroupWithAllowButNoStartNode_Flagged()
+    {
+        SetupByRole(_elementRepository, LibraryEntry(PermissionState.Allow));
+        _reach.ForLibraryCreateAsync(null, "editors").Returns(NoLibraryAccess);
+
+        var report = Assert.IsType<FriendlyAuditReport>(await RunAsync(new AuditPermissionsArgs(
+            AuditScope.UserGroup, "editors", Domain: AuditDomain.Library)));
+
+        var finding = Assert.Single(report.Findings, f => f.RuleId == "library-no-start-node");
+        Assert.Equal("Editors", finding.UserGroup);
+        Assert.Contains("Library start node", finding.Message, StringComparison.Ordinal);
+        Assert.Contains("Umbraco 18", finding.Message, StringComparison.Ordinal);
+
+        // A group's own start node is not the whole story: members combine the start nodes of all their
+        // groups, so the entries still apply to anyone who reaches the Library another way. The message
+        // must not claim they have no effect at all.
+        Assert.Contains("on its own", finding.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("have no effect", finding.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>A group that has a Library start node is not flagged.</summary>
+    [Fact]
+    public async Task Library_GroupWithStartNode_NotFlagged()
+    {
+        SetupByRole(_elementRepository, LibraryEntry(PermissionState.Allow));
+
+        var report = Assert.IsType<FriendlyAuditReport>(await RunAsync(new AuditPermissionsArgs(
+            AuditScope.UserGroup, "editors", Domain: AuditDomain.Library)));
+
+        Assert.DoesNotContain(report.Findings, f => f.RuleId == "library-no-start-node");
+    }
+
+    /// <summary>Only Deny entries grant nothing anyway, so there is nothing lost to report.</summary>
+    [Fact]
+    public async Task Library_GroupWithOnlyDenyEntries_NotFlagged()
+    {
+        SetupByRole(_elementRepository, LibraryEntry(PermissionState.Deny));
+        _reach.ForLibraryCreateAsync(null, "editors").Returns(NoLibraryAccess);
+
+        var report = Assert.IsType<FriendlyAuditReport>(await RunAsync(new AuditPermissionsArgs(
+            AuditScope.UserGroup, "editors", Domain: AuditDomain.Library)));
+
+        Assert.DoesNotContain(report.Findings, f => f.RuleId == "library-no-start-node");
+    }
+
+    /// <summary>Start nodes do not apply to the All Users group, so it is never flagged or even checked.</summary>
+    [Fact]
+    public async Task Library_Everyone_NeverFlagged()
+    {
+        SetupByRole(_elementRepository, LibraryEntry(PermissionState.Allow, AdvancedPermissionsConstants.EveryoneRoleAlias));
+
+        var report = Assert.IsType<FriendlyAuditReport>(await RunAsync(new AuditPermissionsArgs(
+            AuditScope.UserGroup, AdvancedPermissionsConstants.EveryoneRoleAlias, Domain: AuditDomain.Library)));
+
+        Assert.DoesNotContain(report.Findings, f => f.RuleId == "library-no-start-node");
+        await _reach.DidNotReceive().ForLibraryCreateAsync(Arg.Any<Guid?>(), AdvancedPermissionsConstants.EveryoneRoleAlias);
+    }
+
+    /// <summary>The rule is about the Library; the content audit never runs it.</summary>
+    [Fact]
+    public async Task Content_NeverFlagsLibraryStartNodes()
+    {
+        SetupByRole(_repository, LibraryEntry(PermissionState.Allow));
+        _reach.ForLibraryCreateAsync(null, "editors").Returns(NoLibraryAccess);
+
+        var report = Assert.IsType<FriendlyAuditReport>(await RunAsync(new AuditPermissionsArgs(
+            AuditScope.UserGroup, "editors", Domain: AuditDomain.Content)));
+
+        Assert.DoesNotContain(report.Findings, f => f.RuleId == "library-no-start-node");
+        await _reach.DidNotReceiveWithAnyArgs().ForLibraryCreateAsync(default, default);
+    }
+
+    /// <summary>
+    /// Auditing "the Editors user group" by display name must read the real alias's entries — an empty
+    /// read would report a clean audit for a group that was never looked at.
+    /// </summary>
+    [Fact]
+    public async Task UserGroupScope_DisplayName_ReadsTheAliasEntries()
+    {
+        SetupByRole(_repository);
+
+        await RunAsync(new AuditPermissionsArgs(AuditScope.UserGroup, "Editors", Domain: AuditDomain.Content));
+
+        await _repository.Received(1).GetByRoleAsync("editors", Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>An unknown user group is refused instead of being audited as empty.</summary>
+    [Fact]
+    public async Task UserGroupScope_Unknown_ReturnsError()
+    {
+        var result = await RunAsync(new AuditPermissionsArgs(AuditScope.UserGroup, "Marketing", Domain: AuditDomain.Content));
+
+        Assert.StartsWith("There is no user group called 'Marketing'.", Assert.IsType<AccessError>(result).Error, StringComparison.Ordinal);
     }
 }

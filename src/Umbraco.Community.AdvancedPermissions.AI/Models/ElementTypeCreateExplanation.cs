@@ -31,10 +31,20 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// allowed by default with no narrowing entry anywhere — the common case, since element types are
 /// creatable unless denied.
 /// </param>
+/// <param name="IfInsideStartNodes">
+/// Set only when the subject has no Library start node at all (<see cref="Result"/> is "Blocked (start
+/// nodes)"): what the entries alone would give if the subject could reach the Library.
+/// </param>
+/// <param name="StartNodes">
+/// Why start nodes block the subject, when they do and this verdict is the top-level result;
+/// <see langword="null"/> otherwise.
+/// </param>
 public sealed record ElementTypeCreateVerdict(
     string ElementType,
     string Result,
-    IReadOnlyList<AccessReason> Reasons);
+    IReadOnlyList<AccessReason> Reasons,
+    string? IfInsideStartNodes = null,
+    StartNodeReach? StartNodes = null);
 
 /// <summary>
 /// A friendly "which element types can be created in the Library / why can't I create element type X"
@@ -46,8 +56,13 @@ public sealed record ElementTypeCreateVerdict(
 /// <see cref="TypeCreateExplanation"/>.
 /// </remarks>
 /// <param name="ElementTypes">One friendly verdict per evaluated element type.</param>
+/// <param name="StartNodes">
+/// Why the subject cannot create anything in the Library, when it has no Library start node at all —
+/// every type is then "Blocked (start nodes)". <see langword="null"/> otherwise.
+/// </param>
 public sealed record ElementTypeCreateExplanation(
-    IReadOnlyList<ElementTypeCreateVerdict> ElementTypes);
+    IReadOnlyList<ElementTypeCreateVerdict> ElementTypes,
+    StartNodeReach? StartNodes = null);
 
 /// <summary>
 /// A friendly "who can create this element type in the Library" roster for a single element type: which
@@ -56,10 +71,22 @@ public sealed record ElementTypeCreateExplanation(
 /// <param name="ElementType">The friendly display name of the element type.</param>
 /// <param name="AllowedUserGroups">The display names of user groups that may create the type in the Library.</param>
 /// <param name="DeniedUserGroups">The display names of user groups that may not.</param>
+/// <param name="BlockedUserGroups">
+/// The display names of user groups with no Library start node of their own, so on its own the group gives
+/// no Library access — the state of every group but Administrators right after an upgrade to Umbraco 18.
+/// They still appear in the allowed or denied list, because a member may reach the Library through another
+/// group or their own start node. <see langword="null"/> when no group is flagged.
+/// </param>
+/// <param name="StartNodeNote">
+/// Set whenever <c>BlockedUserGroups</c> is: the caveat that users combine the start nodes of all their
+/// groups, so a flagged group's permission still applies to members who reach the node another way.
+/// </param>
 public sealed record ElementTypeCreateRoster(
     string ElementType,
     IReadOnlyList<string> AllowedUserGroups,
-    IReadOnlyList<string> DeniedUserGroups);
+    IReadOnlyList<string> DeniedUserGroups,
+    IReadOnlyList<string>? BlockedUserGroups = null,
+    string? StartNodeNote = null);
 
 /// <summary>
 /// A friendly roster report covering several element types: one <see cref="ElementTypeCreateRoster"/> per

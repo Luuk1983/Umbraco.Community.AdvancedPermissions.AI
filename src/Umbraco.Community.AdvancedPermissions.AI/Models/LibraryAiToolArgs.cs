@@ -53,6 +53,11 @@ public enum LibraryAspect
 /// Optional element type to focus on when <see cref="LibraryAspect.ElementTypeCreate"/> is chosen; omit
 /// for the full roster.
 /// </param>
+/// <param name="NodeName">
+/// The Library item or folder's name as the editor knows it, for when there is no key — the copilot is not
+/// offered in the Library section, so it usually has none. Ignored when <paramref name="NodeKey"/> is given.
+/// A name that matches several nodes, or only similar ones, returns candidates to choose from.
+/// </param>
 /// <param name="SuggestFix">
 /// When <see langword="true"/> and access is denied, also return the concrete, confirmed permission
 /// changes that would grant it. Only honoured for <see cref="LibraryAspect.Node"/>, the
@@ -65,7 +70,7 @@ public sealed record ExplainLibraryAccessArgs(
     Guid? NodeKey = null,
     [property: Description("The GUID key of the user to evaluate. Required when subject is 'user'.")]
     Guid? UserKey = null,
-    [property: Description("The user group alias to evaluate, or '$everyone' for All Users. Required when subject is 'user-group'.")]
+    [property: Description("The user group to evaluate: its name as shown (e.g. 'Editors') or its alias, or 'All Users'. Required when subject is 'user-group'.")]
     string? UserGroupAlias = null,
     [property: Description("Optional Library permission such as 'Umb.Element.Delete' to focus on a single one. Omit to evaluate all of them. Ignored when aspect is 'element-type-create'.")]
     string? Permission = null,
@@ -76,4 +81,6 @@ public sealed record ExplainLibraryAccessArgs(
     [property: Description("optional — focus a single element type when Aspect=element-type-create")]
     Guid? ElementTypeKey = null,
     [property: Description("When true, and access is denied, also return the concrete permission changes that would grant it.")]
-    bool SuggestFix = false);
+    bool SuggestFix = false,
+    [property: Description("The name of the Library item or folder as shown in the Library (e.g. 'Spring banner'), when you don't have its key. Ignored when nodeKey is given. If several nodes match, or only similar names, you get candidates back: ask the editor which one they mean, then call again with its nodeKey.")]
+    string? NodeName = null);

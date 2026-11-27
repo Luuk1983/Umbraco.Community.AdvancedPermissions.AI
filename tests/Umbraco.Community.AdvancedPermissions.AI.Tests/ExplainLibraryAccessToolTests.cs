@@ -58,6 +58,15 @@ public sealed class ExplainLibraryAccessToolTests
     /// <summary>The mocked user service.</summary>
     private readonly IUserService _userService = Substitute.For<IUserService>();
 
+    /// <summary>The mocked lookup guard; allows inspecting others unless a test says otherwise.</summary>
+    private readonly IPermissionLookupGuard _lookupGuard = TestGuards.AllowAll();
+
+    /// <summary>The mocked start-node reach resolver; returns null (not blocked) unless a test configures it.</summary>
+    private readonly IStartNodeReachResolver _reach = Substitute.For<IStartNodeReachResolver>();
+
+    /// <summary>The mocked Library name lookup; only consulted when a test passes a node name.</summary>
+    private readonly ILibraryItemNameResolver _itemNames = Substitute.For<ILibraryItemNameResolver>();
+
     /// <summary>The Library item or folder under test.</summary>
     private readonly Guid _node = Guid.NewGuid();
 
@@ -87,7 +96,10 @@ public sealed class ExplainLibraryAccessToolTests
             _docTypePermissions,
             _elementTypes,
             _remediation,
-            _userService);
+            _userService,
+            _lookupGuard,
+            _reach,
+            _itemNames);
 
     /// <summary>Executes the tool through its public interface.</summary>
     /// <param name="args">The arguments to run with.</param>
@@ -526,5 +538,335 @@ public sealed class ExplainLibraryAccessToolTests
             ExplainSubject.CurrentUser, _node, Permission: AdvancedPermissionsConstants.VerbElementCreate));
 
         Assert.Equal("Allowed", Assert.IsType<AccessVerdict>(result).Result);
+    }
+
+    /// <summary>
+    /// Without Users-section access, asking about another user, a user group or every user group in the
+    /// Library is refused before anything is resolved.
+    /// </summary>
+    /// <param name="subject">A subject other than the asker.</param>
+    [Theory]
+    [InlineData(ExplainSubject.User)]
+    [InlineData(ExplainSubject.UserGroup)]
+    [InlineData(ExplainSubject.AllUserGroups)]
+    public async Task OtherSubject_WithoutUsersSection_ReturnsError(ExplainSubject subject)
+    {
+        _lookupGuard.CanInspectOthers().Returns(false);
+
+        var result = await RunAsync(new ExplainLibraryAccessArgs(
+            subject, _node, UserKey: Guid.NewGuid(), UserGroupAlias: "editors"));
+
+        Assert.Equal("Looking up the permissions of other users or user groups needs access to the Users section. You can still ask about your own access.", Assert.IsType<AccessError>(result).Error);
+        Assert.Empty(_permissions.ReceivedCalls());
+    }
+
+    /// <summary>The asker's own Library access stays answerable without Users-section access.</summary>
+    [Fact]
+    public async Task CurrentUser_WithoutUsersSection_StillAnswers()
+    {
+        _lookupGuard.CanInspectOthers().Returns(false);
+        var userKey = Guid.NewGuid();
+        SetupCurrentUser(userKey);
+        _treeResolver.GetNodeKind(_node).Returns(LibraryNodeKind.Item);
+        _permissions
+            .ResolveAsync(userKey, _node, _path, AdvancedPermissionsConstants.VerbElementDelete, Arg.Any<CancellationToken>())
+            .Returns(Perm(AdvancedPermissionsConstants.VerbElementDelete, isAllowed: true, "editors", _node));
+
+        var result = await RunAsync(new ExplainLibraryAccessArgs(
+            ExplainSubject.CurrentUser, _node, Permission: AdvancedPermissionsConstants.VerbElementDelete));
+
+        Assert.IsType<AccessVerdict>(result);
+    }
+
+    /// <summary>A blocking Library reach, as the resolver would return outside the Library start nodes.</summary>
+    private static readonly StartNodeReach LibraryBlocked = new(
+        "Not visible (start nodes)",
+        "Outside every start node, so Umbraco hides it from the tree.",
+        [new StartNodeRef("Campaign assets", "from Editors")],
+        "Library start nodes are set in the Users section, on the user group or on the user account. No permission entry can change this.");
+
+    /// <summary>A Library item outside the user's Library start nodes is blocked, never allowed.</summary>
+    [Fact]
+    public async Task Item_OutsideLibraryStartNodes_Blocked()
+    {
+        var userKey = Guid.NewGuid();
+        SetupCurrentUser(userKey);
+        _treeResolver.GetNodeKind(_node).Returns(LibraryNodeKind.Item);
+        var allowed = Perm(AdvancedPermissionsConstants.VerbElementDelete, true, "editors", _node);
+        _permissions
+            .ResolveAsync(userKey, _node, _path, AdvancedPermissionsConstants.VerbElementDelete, Arg.Any<CancellationToken>())
+            .Returns(allowed);
+        _reach.ForUserAsync(userKey, _node, PermissionDomain.Library).Returns(LibraryBlocked);
+
+        var verdict = Assert.IsType<AccessVerdict>(await RunAsync(new ExplainLibraryAccessArgs(
+            ExplainSubject.CurrentUser, _node, Permission: AdvancedPermissionsConstants.VerbElementDelete)));
+
+        Assert.Equal("Blocked (start nodes)", verdict.Result);
+        Assert.Equal("Allowed", verdict.IfInsideStartNodes);
+        Assert.Same(LibraryBlocked, verdict.StartNodes);
+    }
+
+    /// <summary>
+    /// Review focus 4: a permission that never applies to a folder stays "Not applicable" even when the
+    /// folder is outside the start nodes — N/A wins over blocked, as in the Library Access Viewer.
+    /// </summary>
+    [Fact]
+    public async Task Folder_NotApplicableVerb_StaysNotApplicableWhenBlocked()
+    {
+        var userKey = Guid.NewGuid();
+        SetupCurrentUser(userKey);
+        _treeResolver.GetNodeKind(_node).Returns(LibraryNodeKind.Folder);
+        _reach.ForUserAsync(userKey, _node, PermissionDomain.Library).Returns(LibraryBlocked);
+
+        var verdict = Assert.IsType<AccessVerdict>(await RunAsync(new ExplainLibraryAccessArgs(
+            ExplainSubject.CurrentUser, _node, Permission: AdvancedPermissionsConstants.VerbElementPublish)));
+
+        Assert.Equal("Not applicable", verdict.Result);
+        Assert.Null(verdict.IfInsideStartNodes);
+    }
+
+    /// <summary>
+    /// In an all-permissions answer for a blocked folder, applicable permissions are blocked and
+    /// inapplicable ones stay "Not applicable"; the reach is carried once at the top.
+    /// </summary>
+    [Fact]
+    public async Task Folder_AllPermissions_BlockedExceptNotApplicable()
+    {
+        var userKey = Guid.NewGuid();
+        _treeResolver.GetNodeKind(_node).Returns(LibraryNodeKind.Folder);
+        var resolved = new Dictionary<string, EffectivePermission>
+        {
+            [AdvancedPermissionsConstants.VerbElementDelete] = Perm(AdvancedPermissionsConstants.VerbElementDelete, true, "editors", _node),
+            [AdvancedPermissionsConstants.VerbElementPublish] = Perm(AdvancedPermissionsConstants.VerbElementPublish, true, "editors", _node),
+        };
+        _permissions.ResolveAllAsync(userKey, _node, _path, null, Arg.Any<CancellationToken>()).Returns(resolved);
+        _reach.ForUserAsync(userKey, _node, PermissionDomain.Library).Returns(LibraryBlocked);
+
+        var explanation = Assert.IsType<AccessExplanation>(await RunAsync(new ExplainLibraryAccessArgs(
+            ExplainSubject.User, _node, UserKey: userKey)));
+
+        Assert.Same(LibraryBlocked, explanation.StartNodes);
+        Assert.Contains(explanation.Permissions, v => v.Permission == "Delete" && v.Result == "Blocked (start nodes)");
+        Assert.Contains(explanation.Permissions, v => v.Result == "Not applicable");
+        Assert.DoesNotContain(explanation.Permissions, v => v.Result == "Allowed");
+    }
+
+    /// <summary>A group whose own Library start node misses the item is listed as blocked in the roster.</summary>
+    [Fact]
+    public async Task AllUserGroups_BlockedGroupsListedSeparately()
+    {
+        _treeResolver.GetNodeKind(_node).Returns(LibraryNodeKind.Item);
+        var resolved = new Dictionary<string, EffectivePermission>
+        {
+            [AdvancedPermissionsConstants.VerbElementDelete] = Perm(AdvancedPermissionsConstants.VerbElementDelete, true, "editors", _node),
+        };
+        _permissions
+            .ResolveForRoleAsync(Arg.Any<string>(), _node, _path, Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>())
+            .Returns(resolved);
+        _reach.ForUserGroupAsync("editors", _node, PermissionDomain.Library).Returns(LibraryBlocked);
+
+        var roster = Assert.IsType<AccessRoster>(await RunAsync(new ExplainLibraryAccessArgs(
+            ExplainSubject.AllUserGroups, _node, Permission: AdvancedPermissionsConstants.VerbElementDelete)));
+
+        Assert.Equal(["Editors"], roster.BlockedUserGroups!);
+        Assert.Contains("Editors", roster.AllowedUserGroups);
+        Assert.Contains("combined start nodes", roster.StartNodeNote!, StringComparison.Ordinal);
+        Assert.Contains("All Users", roster.AllowedUserGroups);
+    }
+
+    /// <summary>
+    /// The Umbraco 18 upgrade trap: a user with no Library start node cannot create any element type,
+    /// whatever the create filter says, and the answer explains why.
+    /// </summary>
+    [Fact]
+    public async Task ElementTypeCreate_NoLibraryStartNode_AllBlocked()
+    {
+        var userKey = Guid.NewGuid();
+        var typeKey = Guid.NewGuid();
+        SetupCurrentUser(userKey);
+        SetupUserGroups(userKey);
+        var bannerType = ElementType(typeKey, "Promo Banner");
+        _contentTypeService.Get(typeKey).Returns(bannerType);
+        _elementTypes.GetLibraryElementTypes().Returns([bannerType]);
+        var allowed = Perm(AdvancedPermissionsConstants.VerbElementCreateOfType, true, "editors", AdvancedPermissionsConstants.VirtualRootNodeKey);
+        _docTypePermissions
+            .ResolveCreateForRolesAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyList<Guid>>(), typeKey, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(allowed);
+        var noAccess = LibraryBlocked with
+        {
+            Explanation = "This user has no Library start nodes, so they can't reach the Library at all. Everything is blocked.",
+            StartNodes = [],
+        };
+        _reach.ForLibraryCreateAsync(userKey, null).Returns(noAccess);
+
+        var explanation = Assert.IsType<ElementTypeCreateExplanation>(await RunAsync(new ExplainLibraryAccessArgs(
+            ExplainSubject.CurrentUser, Aspect: LibraryAspect.ElementTypeCreate)));
+
+        Assert.Same(noAccess, explanation.StartNodes);
+        var verdict = Assert.Single(explanation.ElementTypes);
+        Assert.Equal("Blocked (start nodes)", verdict.Result);
+        Assert.Equal("Allowed", verdict.IfInsideStartNodes);
+    }
+
+    /// <summary>A user with a Library start node can create inside it, so creation is not blocked.</summary>
+    [Fact]
+    public async Task ElementTypeCreate_RestrictedButHasStartNode_NotBlocked()
+    {
+        var userKey = Guid.NewGuid();
+        var typeKey = Guid.NewGuid();
+        SetupCurrentUser(userKey);
+        SetupUserGroups(userKey);
+        var bannerType = ElementType(typeKey, "Promo Banner");
+        _contentTypeService.Get(typeKey).Returns(bannerType);
+        var allowed = Perm(AdvancedPermissionsConstants.VerbElementCreateOfType, true, "editors", AdvancedPermissionsConstants.VirtualRootNodeKey);
+        _docTypePermissions
+            .ResolveCreateForRolesAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyList<Guid>>(), typeKey, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(allowed);
+
+        var verdict = Assert.IsType<ElementTypeCreateVerdict>(await RunAsync(new ExplainLibraryAccessArgs(
+            ExplainSubject.CurrentUser, Aspect: LibraryAspect.ElementTypeCreate, ElementTypeKey: typeKey)));
+
+        Assert.Equal("Allowed", verdict.Result);
+        Assert.Null(verdict.StartNodes);
+        await _reach.Received(1).ForLibraryCreateAsync(userKey, null);
+    }
+
+    /// <summary>"Who can create Promo Banner?": groups with no Library start node are listed as blocked.</summary>
+    [Fact]
+    public async Task ElementTypeCreate_Roster_GroupsWithoutLibraryStartNodeBlocked()
+    {
+        var typeKey = Guid.NewGuid();
+        var bannerType = ElementType(typeKey, "Promo Banner");
+        _contentTypeService.Get(typeKey).Returns(bannerType);
+        var allowed = Perm(AdvancedPermissionsConstants.VerbElementCreateOfType, true, "editors", AdvancedPermissionsConstants.VirtualRootNodeKey);
+        _docTypePermissions
+            .ResolveCreateForRolesAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyList<Guid>>(), typeKey, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(allowed);
+        _reach.ForLibraryCreateAsync(null, "editors").Returns(LibraryBlocked);
+
+        var roster = Assert.IsType<ElementTypeCreateRoster>(await RunAsync(new ExplainLibraryAccessArgs(
+            ExplainSubject.AllUserGroups, Aspect: LibraryAspect.ElementTypeCreate, ElementTypeKey: typeKey)));
+
+        Assert.Equal(["Editors"], roster.BlockedUserGroups!);
+        Assert.Contains("Editors", roster.AllowedUserGroups);
+        Assert.Contains("combined start nodes", roster.StartNodeNote!, StringComparison.Ordinal);
+    }
+
+    /// <summary>A blocked Library node cannot be fixed with a permission entry, so no fix is computed.</summary>
+    [Fact]
+    public async Task SuggestFix_WhenBlocked_ReturnsNoRemediations()
+    {
+        var userKey = Guid.NewGuid();
+        SetupCurrentUser(userKey);
+        SetupUserGroups(userKey);
+        _treeResolver.GetNodeKind(_node).Returns(LibraryNodeKind.Item);
+        var denied = Perm(AdvancedPermissionsConstants.VerbElementDelete, false, "editors", _node);
+        _permissions
+            .ResolveAsync(userKey, _node, _path, AdvancedPermissionsConstants.VerbElementDelete, Arg.Any<CancellationToken>())
+            .Returns(denied);
+        _reach.ForUserAsync(userKey, _node, PermissionDomain.Library).Returns(LibraryBlocked);
+
+        var verdict = Assert.IsType<AccessVerdict>(await RunAsync(new ExplainLibraryAccessArgs(
+            ExplainSubject.CurrentUser, _node, Permission: AdvancedPermissionsConstants.VerbElementDelete, SuggestFix: true)));
+
+        Assert.Equal("Blocked (start nodes)", verdict.Result);
+        Assert.Null(verdict.Remediations);
+        await _remediation.DidNotReceiveWithAnyArgs().SuggestAsync(default, default!, default!, default!, default, default, default);
+    }
+
+    /// <summary>The Library tool also maps a user group's display name to its alias before resolving.</summary>
+    [Fact]
+    public async Task UserGroup_DisplayName_ResolvesToTheAlias()
+    {
+        _treeResolver.GetNodeKind(_node).Returns(LibraryNodeKind.Item);
+
+        await RunAsync(new ExplainLibraryAccessArgs(ExplainSubject.UserGroup, _node, UserGroupAlias: "Editors"));
+
+        await _permissions.Received(1).ResolveForRoleAsync(
+            "editors", _node, _path, Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>An unknown user group is refused rather than resolved as an empty entry set.</summary>
+    [Fact]
+    public async Task UserGroup_Unknown_ReturnsError()
+    {
+        var result = await RunAsync(new ExplainLibraryAccessArgs(ExplainSubject.UserGroup, _node, UserGroupAlias: "Marketing"));
+
+        Assert.StartsWith("There is no user group called 'Marketing'.", Assert.IsType<AccessError>(result).Error, StringComparison.Ordinal);
+    }
+
+    // ── Lookup by name ────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Live-check finding: the copilot has no Library node key, so the editor's name for the node is
+    /// resolved to the key and the permissions are explained at that node.
+    /// </summary>
+    [Fact]
+    public async Task NodeName_ResolvesToTheNode()
+    {
+        _itemNames.ResolveAsync("Spring banner").Returns(new LibraryItemLookup(_node, null, null));
+
+        await RunAsync(new ExplainLibraryAccessArgs(ExplainSubject.UserGroup, UserGroupAlias: "Editors", NodeName: "Spring banner"));
+
+        await _permissions.Received(1).ResolveForRoleAsync(
+            "editors", _node, _path, Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>An ambiguous name returns the candidates for the editor to choose from, and resolves nothing.</summary>
+    [Fact]
+    public async Task NodeName_Ambiguous_ReturnsTheCandidates()
+    {
+        var candidates = new LibraryItemCandidates("Several", [new LibraryItemCandidate("Logo", "Item", "Library root", _node)]);
+        _itemNames.ResolveAsync("Logo").Returns(new LibraryItemLookup(null, candidates, null));
+
+        var result = await RunAsync(new ExplainLibraryAccessArgs(ExplainSubject.UserGroup, UserGroupAlias: "Editors", NodeName: "Logo"));
+
+        Assert.Same(candidates, result);
+        Assert.Empty(_permissions.ReceivedCalls());
+    }
+
+    /// <summary>A name that matches nothing is relayed as an error.</summary>
+    [Fact]
+    public async Task NodeName_NotFound_ReturnsTheError()
+    {
+        _itemNames.ResolveAsync("Winter banner").Returns(new LibraryItemLookup(null, null, "Not found."));
+
+        var result = await RunAsync(new ExplainLibraryAccessArgs(ExplainSubject.UserGroup, UserGroupAlias: "Editors", NodeName: "Winter banner"));
+
+        Assert.Equal("Not found.", Assert.IsType<AccessError>(result).Error);
+    }
+
+    /// <summary>A key, when given, is used as-is: the name is not looked up.</summary>
+    [Fact]
+    public async Task NodeKey_WinsOverNodeName()
+    {
+        await RunAsync(new ExplainLibraryAccessArgs(ExplainSubject.UserGroup, _node, UserGroupAlias: "Editors", NodeName: "Spring banner"));
+
+        await _itemNames.DidNotReceiveWithAnyArgs().ResolveAsync(default!);
+        await _permissions.Received(1).ResolveForRoleAsync(
+            "editors", _node, _path, Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Without a key or a name, the node aspect asks for either.</summary>
+    [Fact]
+    public async Task NoNodeKeyOrName_ReturnsError()
+    {
+        var result = await RunAsync(new ExplainLibraryAccessArgs(ExplainSubject.UserGroup, UserGroupAlias: "Editors"));
+
+        Assert.Equal(
+            "A nodeKey or nodeName is required to explain permissions on a library item or folder.",
+            Assert.IsType<AccessError>(result).Error);
+    }
+
+    /// <summary>The section-wide element-type aspect takes no node, so a name is never looked up for it.</summary>
+    [Fact]
+    public async Task ElementTypeCreate_IgnoresNodeName()
+    {
+        _elementTypes.GetLibraryElementTypes().Returns(Array.Empty<IContentType>());
+
+        await RunAsync(new ExplainLibraryAccessArgs(
+            ExplainSubject.UserGroup, UserGroupAlias: "Editors", Aspect: LibraryAspect.ElementTypeCreate, NodeName: "Spring banner"));
+
+        await _itemNames.DidNotReceiveWithAnyArgs().ResolveAsync(default!);
     }
 }

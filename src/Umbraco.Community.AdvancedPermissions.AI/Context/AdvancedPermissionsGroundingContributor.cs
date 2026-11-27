@@ -93,12 +93,14 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
         "tree) — each with its own editors, stored and resolved independently, so a permission in one says " +
         "nothing about the other. " +
         "For ANY question about how the permission system works — precedence, inheritance, scopes, Priority " +
-        "Override, unset permissions, Insert Options, or how to change a permission in the backoffice — call " +
+        "Override, unset permissions, Insert Options, start nodes, or how to change a permission in the backoffice — call " +
         "uap_explain_concepts and answer only from what it returns, never from your own knowledge, and do not " +
         "assume you already know. " +
         "For ANY question about WHERE to go or WHICH screen to use — there are eight editors and viewers " +
         "whose names all combine 'permissions', 'access', 'editor' and 'viewer' — call uap_explain_editors " +
         "rather than guessing from a name or describing a menu path from memory. " +
+        "All of those editors and viewers are in the Users section, so only people with access to the Users section can open them: " +
+        "never send anyone else there to check something — look it up for them with the tools, or say that an administrator can. " +
         "Terminology — talk like an editor, not the database. Never use 'Allow' or 'Deny' as bare nouns: say " +
         "'a Deny entry' / 'an Allow entry', or better use the verb ('deleting is denied', 'Editors are allowed " +
         "to publish'). An entry's state is Allow or Deny, so a blocking entry is 'a Deny entry' — never 'a Deny " +
@@ -138,9 +140,12 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
     /// need a document key.
     /// </summary>
     private const string DocumentGrounding =
-        " If a user cannot perform an action or the editor appears read-only, a Deny entry is a likely cause — " +
-        "use the Advanced Permissions tools (uap_explain_access, uap_audit_permissions) to check before " +
-        "concluding the cause is structural. " +
+        " If a user cannot perform an action, cannot see a page, or the editor appears read-only, a Deny entry " +
+        "or the user's start nodes are the likely causes — use the Advanced Permissions tools " +
+        "(uap_explain_access, uap_audit_permissions) to check before concluding anything else. A " +
+        "'Blocked (start nodes)' result means Umbraco blocks the node before any permission is checked: say " +
+        "so, relay who set the start nodes, and never suggest a permission entry as the fix — start nodes are " +
+        "changed in the Users section, on the user group or the user account. " +
         "When you recommend a change or explain how to fix a denial, first call uap_explain_access with " +
         "suggestFix=true and present ONLY the confirmed changes it returns (each is verified by simulating it " +
         "against the resolver) — never hand-roll or guess a fix, and remember suggestFix describes the entries " +
@@ -162,8 +167,9 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
         " You are focused on a LIBRARY item or folder, so use uap_explain_library_access (NOT " +
         "uap_explain_access, which covers the content tree only — the two are stored separately, so an " +
         "answer from the wrong one is about the wrong thing). " +
-        "If a user cannot perform an action here, a Deny entry is a likely cause — check with " +
-        "uap_explain_library_access before concluding the cause is structural. " +
+        "If a user cannot perform an action here, a Deny entry or their Library start nodes are the likely " +
+        "causes — check with uap_explain_library_access before concluding anything else. A 'Blocked (start " +
+        "nodes)' result is never fixed by a permission entry: relay who set the Library start nodes instead. " +
         "Some permissions are reported 'Not applicable' rather than allowed or denied, because they have no " +
         "meaning for that kind of node: Create on a single item, and Publish/Unpublish/Duplicate/Rollback on " +
         "a folder (those apply to the items inside it). Relay that as not applicable — never as denied, and " +
@@ -176,7 +182,9 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
         "it and never present that option as an equal-footing alternative — removing the Deny entry is the " +
         "preferred fix, and a Priority Override is a last resort. " +
         "For which element types may be created in the Library, use aspect=element-type-create and pass NO " +
-        "node: that decision is section-wide, and element types are creatable by default.";
+        "node: that decision is section-wide, and element types are creatable by default — but only for users " +
+        "who can reach the Library: a user group with no Library start node can't create anything there, " +
+        "which is the state of every group except Administrators right after an upgrade to Umbraco 18.";
 
     /// <inheritdoc />
     public void Contribute(AIRuntimeContext context)

@@ -80,7 +80,7 @@ public sealed record ExplainAccessArgs(
     Guid NodeKey,
     [property: Description("The GUID key of the user to evaluate. Required when subject is 'user'.")]
     Guid? UserKey = null,
-    [property: Description("The user group alias to evaluate, or '$everyone' for All Users. Required when subject is 'user-group'.")]
+    [property: Description("The user group to evaluate: its name as shown (e.g. 'Editors') or its alias, or 'All Users'. Required when subject is 'user-group'.")]
     string? UserGroupAlias = null,
     [property: Description("Optional verb such as 'Umb.Document.Delete' to focus on a single action. Omit to evaluate all actions. Ignored when aspect is 'type-create'.")]
     string? Verb = null,
@@ -170,7 +170,7 @@ public enum AuditDomain
 public sealed record AuditPermissionsArgs(
     [property: Description("What to audit: 'user-group' (all entries for one user group — the default, requires userGroupAlias), 'subtree' (everything stored on a node and its descendants, requires nodeKey), or 'all' (the whole stored configuration).")]
     AuditScope Scope = AuditScope.UserGroup,
-    [property: Description("The user group alias whose stored permission entries to audit, or '$everyone'. Required when scope is 'user-group'.")]
+    [property: Description("The user group whose stored permission entries to audit: its name as shown (e.g. 'Editors') or its alias, or 'All Users'. Required when scope is 'user-group'.")]
     string? UserGroupAlias = null,
     [property: Description("The GUID key of the node whose subtree (this node and all descendants) to audit. Required when scope is 'subtree'.")]
     Guid? NodeKey = null,
