@@ -10,8 +10,6 @@
 //   uap_explain_access         -> uapExplainAccess
 //   uap_explain_library_access -> uapExplainLibraryAccess
 //   uap_audit_permissions      -> uapAuditPermissions
-//   uap_explain_concepts       -> uapExplainConcepts
-//   uap_explain_editors        -> uapExplainEditors
 //
 // Scope id `advanced-permissions:read` -> `advancedPermissions:read` (the colon
 // is NOT a separator and survives camelCasing), giving the quoted scope key below.
@@ -29,12 +27,6 @@ export default {
     uapAuditPermissionsLabel: 'Audit permissions',
     uapAuditPermissionsDescription:
       "Scan a user group's, a subtree's, or the whole site's permission setup for risks and conflicts, in the content tree or the Library.",
-    uapExplainConceptsLabel: 'Explain permission concepts',
-    uapExplainConceptsDescription:
-      'Explain how this site’s permissions work — Allow/Deny entries, precedence, scopes, inheritance, Priority Override, the create filters, and start nodes.',
-    uapExplainEditorsLabel: 'Explain the permission editors',
-    uapExplainEditorsDescription:
-      'Explain which of the permission editors and viewers to use for a given question, how they differ, and where to find them in the backoffice.',
   },
   uaiToolScope: {
     'advancedPermissions:readLabel': 'Advanced Permissions (read)',

@@ -5,7 +5,8 @@
 Optional **AI companion** for `Umbraco.Community.AdvancedPermissions`. Ships native C# Umbraco AI
 copilot tools (`[AITool]`s via `Umbraco.AI`) that explain effective permissions, find which user
 groups can access a node, and audit permission configuration — read-only, grounded in the base
-package's permission-resolution engine. **Umbraco v18-first** (targets `net10.0`). The v17 line is
+package's permission-resolution engine — plus an Umbraco AI **knowledge set** carrying the reference
+text (how the permission rules work, and which of the eight screens to use). **Umbraco v18-first** (targets `net10.0`). The v17 line is
 maintained on the `v17/main` branch; `main` is v18.
 
 ## Guiding principle — where "how" comes from
@@ -24,7 +25,7 @@ cwd resets between calls, so a relative-path grep can silently read the wrong re
 ## Solution structure
 
     src/
-      Umbraco.Community.AdvancedPermissions.AI/          # The package (Razor SDK): Tools, Services, Models, Scopes, wwwroot/App_Plugins
+      Umbraco.Community.AdvancedPermissions.AI/          # The package (Razor SDK): Tools, Knowledge, Services, Models, Scopes, wwwroot/App_Plugins
     tests/
       Umbraco.Community.AdvancedPermissions.AI.Tests/    # xUnit + NSubstitute unit tests
       Umbraco.Community.AdvancedPermissions.AI.TestSite/ # Minimal bootable Umbraco 18 site + AI copilot for manual verification
@@ -44,19 +45,21 @@ No Core/Data/Client projects: the package has no persistence and no Vite/Lit fro
   so the package compiles against the contract without a separate reference. **No direct
   `Umbraco.Cms.*` references** — they arrive transitively (the CMS floor is implicit; see below).
   Upper bounds are **plain stable versions** — nuget.org rejects a `-0` bound at push time (see RELEASE.md).
-- **`Umbraco.AI.Startup`** (`[18.0.0,19.0.0)`) — the Umbraco AI runtime (its composer registers the
-  services). It flows `Umbraco.AI.Core`, the `[AITool]` authoring contract the code compiles against.
+- **`Umbraco.AI.Startup`** (`[18.2.0,19.0.0)`) — the Umbraco AI runtime (its composer registers the
+  services). It flows `Umbraco.AI.Core`, the `[AITool]` and `[AIKnowledgeSet]` authoring contract the
+  code compiles against. The floor is **18.2.0** because that is the first release with knowledge sets
+  (18.0.0 and 18.1.x lack `Umbraco.AI.Core.Contexts.KnowledgeSets`; on v17 they arrived in 17.2.0).
   **Never go back to `Umbraco.AI.Core` alone**: Core ships `AIContextPickerPropertyValueConverter`,
   which Umbraco type-scans and registers, and it needs `IAIContextService` — registered only by Startup.
   A site with this package but no runtime then fails to boot in Development ("Unable to resolve service
   for type 'Umbraco.AI.Core.Contexts.IAIContextService'"); Production boots only because nothing resolves
   the converter. `Umbraco.AI.Agent` depends on Startup the same way. **Not the `Umbraco.AI` meta package
-  either**: it also pins `Umbraco.AI.Web.StaticAssets`, and with lowest-applicable resolution our 18.0.0
+  either**: it also pins `Umbraco.AI.Web.StaticAssets`, and with lowest-applicable resolution our 18.2.0
   floor would hold the backoffice UI there while another package lifts the runtime. The UI stays a host
   concern (the TestSite runs `Umbraco.AI` 18.3.1). The build action's dependency check names
   `Umbraco.AI.Startup`, so a regression fails the PR. Umbraco.AI majors track the CMS major.
 - **The effective Umbraco CMS floor is `18.0.0`**, and it is *computed*, never declared here. Read it off
-  the dependencies' own nuspecs at the version our floor resolves to: `Umbraco.AI.Startup` 18.0.0 requires
+  the dependencies' own nuspecs at the version our floor resolves to: `Umbraco.AI.Startup` 18.2.0 requires
   `Umbraco.Cms.* [18.0.0, 18.999.999)` and the base package requires `[18.0.0, 19.0.0)`, so they agree at
   18.0.0. Do not restate this number
   from memory (on the v17 line it was documented as 17.4.2 for a while and that was wrong) — re-derive it
@@ -139,13 +142,16 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
   that `ResolveCreateForRolesAsync` sprang when it gained a defaulted `verb` parameter *before*
   `cancellationToken`. When adding a parameter to a service of our own, put it **before** the token so
   existing positional calls break loudly instead of silently re-binding.
-- **`uap_explain_editors` is the fifth tool, and its job is the boundaries.** Five tools now:
-  `uap_explain_access`, `uap_explain_library_access`, `uap_audit_permissions`, `uap_explain_concepts`,
-  `uap_explain_editors`. The last one mirrors the base package's nine per-surface help docs the way
-  `uap_explain_concepts` mirrors `concepts.md` — a split that follows the base package's own, since
-  `concepts.md` is shared between the v17 and v18 lines (v18 adds only the Library start-node bullets)
-  while the per-surface docs went 5 → 9.
-  Its content is ordered **boundaries-first** (how to choose, then the three contrast pairs, then the
+- **Three tools and one knowledge set; the editors item's job is the boundaries.** The tools are
+  `uap_explain_access`, `uap_explain_library_access` and `uap_audit_permissions`. The knowledge set
+  (`Knowledge/AdvancedPermissionsKnowledgeSet.cs`) has two items: "Permission concepts"
+  (`ConceptsReference`, mirroring the base package's `concepts.md`) and "Permission editors and viewers"
+  (`EditorsReference`, mirroring its nine per-surface help docs) — a split that follows the base
+  package's own, since `concepts.md` is shared between the v17 and v18 lines (v18 adds only the Library
+  start-node bullets) while the per-surface docs went 5 → 9. Until issue #9 these two were the tools
+  `uap_explain_concepts` and `uap_explain_editors`; a test asserts neither id is registered any more and
+  that no model-visible text names them.
+  The editors content is ordered **boundaries-first** (how to choose, then the three contrast pairs, then the
   eight surfaces) because the failure to prevent is not "cannot describe a screen" but "confidently
   describes the wrong one of eight similarly-named screens". `EditorSurface.NotThis` is load-bearing:
   a test asserts every surface names *another* surface as the alternative. Keep it that way — do not let
@@ -227,16 +233,28 @@ the same MinVer value, so the two never drift. The committed source keeps a `0.0
   are quicker and are versioned to what actually restores
   (`~/.nuget/packages/umbraco.cms.core/<ver>/lib/net10.0/Umbraco.Core.xml`) — that is how the
   `IEntityService` overloads used by `ElementTreeResolver` were confirmed. Never read `node_modules`.
-- **Definitions live in a tool; only style lives in the prompt.** `uap_explain_concepts`
-  (`Tools/ExplainConceptsTool.cs`, no args, no I/O) returns the conceptual reference — model, precedence,
-  scopes, Priority Override, Insert Options, backoffice navigation — so its cost is paid only when asked.
-  The always-on `ConceptsGrounding` (~635 tokens) keeps only what a tool *cannot* deliver: terminology and
-  readability rules (they govern every sentence, including paraphrases of other tools' output), the
-  read-only stance, and **a pointer at the tool**. That pointer is load-bearing — the bug it fixes was the
-  model answering confidently and wrongly without realising it needed a reference, so a tool alone would
-  not have fired. `DocumentGrounding` (~300 tokens, tool nudges + `suggestFix`/`GrantedBy`/`Caution` rules)
-  is *appended* on document conversations, making those a strict superset, contributed as one part.
-  When adding a definition, put it in the tool — never back into the prompt (a test enforces this).
+- **Definitions live in the knowledge set; only style lives in the prompt.** The rule for where
+  something goes: **if the answer depends on live data it is a tool; if it does not, it is knowledge.**
+  The conceptual reference (model, precedence, scopes, Priority Override, Insert Options, start nodes,
+  backoffice navigation) and the editors guide are knowledge: `Knowledge/ConceptsReference.cs` and
+  `Knowledge/EditorsReference.cs` hold the structured records (`PermissionConcepts`, `EditorGuide`, now
+  `internal`) and render them to markdown; `AdvancedPermissionsKnowledgeSet` exposes them as two items.
+  How Umbraco AI uses it (researched in `Umbraco.AI.Core` 18.3.1): the set is auto-discovered and active
+  for **every** chat request on the site — no composer code, no agent setup, no tool scope. Each item's
+  name and description are listed in the system prompt under "Available On-Demand Context Resources", and
+  the model fetches the body with the built-in `get_context_resource`, a system tool every agent always
+  has. So the model **still decides when to fetch**: the always-on `ConceptsGrounding` (~650 tokens)
+  keeps only what knowledge *cannot* deliver — terminology and readability rules (they govern every
+  sentence, including paraphrases of tool output), the read-only stance, and **a pointer at each item by
+  name** (`ConceptsItemName`, `EditorsItemName`). That pointer is load-bearing — the bug it fixes was the
+  model answering confidently and wrongly without realising it needed a reference. The item
+  descriptions matter for the same reason: they are what the model reads before deciding to fetch. The
+  item **keys** (`concepts`, `editors`) seed Umbraco's deterministic resource id: never rename them. A
+  test renders every string field of the records, so a field added but not rendered fails.
+  `DocumentGrounding` (~300 tokens, tool nudges + `suggestFix`/`GrantedBy`/`Caution` rules) is *appended*
+  on document conversations, making those a strict superset, contributed as one part. When adding a
+  definition, put it in the knowledge — never back into the prompt (a test enforces this). The terminology
+  tests cover the knowledge text too (set and item descriptions, and both bodies).
 - **Grounding text mirrors the base package UI**: the grounding in
   `Context/AdvancedPermissionsGroundingContributor.cs` hard-codes base-package UI labels and navigation
   (e.g. "Users section", "Content Permissions", "Permissions Editor") so the copilot can explain *how* to

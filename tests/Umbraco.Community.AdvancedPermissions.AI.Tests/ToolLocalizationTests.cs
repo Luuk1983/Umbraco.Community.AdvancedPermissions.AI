@@ -13,7 +13,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tests;
 /// This closes a genuinely silent failure. Umbraco AI's "Select Tools" dialog localizes each tool through
 /// keys derived from its id, and the <c>lang/*.js</c> files are plain static assets: nothing compiles
 /// them, nothing validates them, and nothing fails at build or run time when a pair is missing. The only
-/// symptom is a raw key such as <c>uaiTool_uapExplainEditorsLabel</c> appearing in the dialog — visible to
+/// symptom is a raw key such as <c>uaiTool_uapExplainLibraryAccessLabel</c> appearing in the dialog — visible to
 /// an administrator, invisible to us.
 /// </para>
 /// <para>

@@ -94,8 +94,8 @@ not decide anything. It picks the right question to ask, then puts the result in
 
 - Umbraco CMS 18.0.0 or newer, on .NET 10. Note that Umbraco AI currently caps its Umbraco dependency
   below 19, so this package cannot be installed on Umbraco 19 until that cap moves.
-- [Umbraco AI](https://github.com/umbraco/Umbraco.AI) on the 18 line, installed and configured, with a
-  working copilot chat. This package brings the Umbraco AI runtime with it, but not its backoffice
+- [Umbraco AI](https://github.com/umbraco/Umbraco.AI) 18.2.0 or newer on the 18 line (the first release
+  with knowledge sets), installed and configured, with a working copilot chat. This package brings the Umbraco AI runtime with it, but not its backoffice
   screens: install the `Umbraco.AI` package for the AI section, and `Umbraco.AI.Agent.Copilot` for the
   chat itself.
 - Advanced Permissions for Umbraco 18.3.0 or newer, which arrives automatically as a dependency. The
@@ -129,7 +129,7 @@ step 5, which is the only step specific to this package.
 4. **Set up a default chat agent** for the copilot. Without one there is no chat for these tools to be
    called from.
 5. **Allow this package's tools on that agent.** Open the chat agent, go to Governance, and under
-   Allowed Tool Scopes tick "Advanced Permissions (read)". All five tools sit under that one scope.
+   Allowed Tool Scopes tick "Advanced Permissions (read)". All three tools sit under that one scope.
 
 ![Allowing the Advanced Permissions (read) tool scope on the chat agent](https://raw.githubusercontent.com/Luuk1983/Umbraco.Community.AdvancedPermissions.AI/main/docs/screenshots/agent_tool_scopes.jpg)
 
@@ -139,13 +139,18 @@ permission questions from its own general knowledge. Because it sits under a sin
 is also how you take the tools away again, and Umbraco AI's per-user-group governance applies to it like
 any other scope.
 
+The package's reference text (how the permission rules work, and which screen to use) needs no step at
+all. It ships as an Umbraco AI knowledge set, which Umbraco AI makes available to every agent on its own,
+so even a copilot without the scope can explain the rules instead of guessing them.
+
 To confirm it works, open a content node, start a copilot chat and ask "who can publish here?". The
 answer should name your real user groups.
 
 ## The tools
 
-Five tools are registered, all under the `advanced-permissions:read` scope. The copilot picks between
-them; you never call them yourself.
+Three tools are registered, all under the `advanced-permissions:read` scope. The copilot picks between
+them; you never call them yourself. The reference text the copilot needs alongside them is not a tool:
+see [Built-in knowledge](#built-in-knowledge).
 
 Like the base package's viewers, the tools only let someone with access to the Users section look up
 other people's permissions. Without it, an editor can still ask about their own access, but asking about
@@ -153,9 +158,7 @@ another user, a user group, or every user group, and running an audit, is refuse
 
 The split falls along two lines. `uap_explain_access` and `uap_explain_library_access` are siblings
 because the content tree and the Library are stored and resolved separately, and the Library's arguments
-genuinely differ — element-type creation takes no node at all. `uap_explain_concepts` and
-`uap_explain_editors` are siblings for the same reason the base package's own help has a Concepts tab
-separate from its per-page help: one explains the rules, the other explains the screens.
+genuinely differ — element-type creation takes no node at all.
 
 ### `uap_explain_access`
 
@@ -252,22 +255,34 @@ so entries left behind on deleted or trashed nodes are not included. For the cre
 every user group, so no group's entries are missed; the Library element-type filter has no nodes, so all
 of its entries are read.
 
-### `uap_explain_concepts`
+## Built-in knowledge
 
-Takes no arguments and reads nothing. It returns the conceptual reference: how permissions are stored,
-how competing entries are resolved, what each scope reaches, what Priority Override actually is, how the
-create filters differ, and that the same machinery governs two separate trees. It exists because the
-copilot answered these questions confidently and wrongly when left to its own knowledge. The wording
-comes from the base package's own help documentation, so the copilot explains the model exactly as the
-in-product help does.
+Some answers do not depend on anything in your site: how the permission rules work, and which of the
+eight permission screens to use. Those are not tools but an Umbraco AI **knowledge set**, "Advanced
+Permissions", with two items. The rule the package follows is simple: if an answer depends on live
+data it is a tool, and if it does not it is knowledge.
 
-### `uap_explain_editors`
+Umbraco AI switches a knowledge set on by itself, for every agent, with nothing to configure. Each item's
+name and one-line description are listed for the model in every chat, and the model reads the full text
+when a question needs it. The package's own instructions to the copilot point at both items by name, so
+it looks them up rather than answering from memory.
 
-Also takes no arguments and reads nothing. It returns the reference for the base package's eight editors
-and viewers: which one answers a given question, what each one does and does *not* do, and the exact
-backoffice navigation.
+The wording comes from the base package's own help documentation, so the copilot explains the model
+exactly as the in-product help does.
 
-It is separate from `uap_explain_concepts` because the two answer different questions, and the base
+### Permission concepts
+
+How permissions are stored, how competing entries are resolved, what each scope reaches, what Priority
+Override actually is, how the create filters differ, how start nodes come before any permission, how to
+change a permission, and that the same machinery governs two separate trees. It exists because the
+copilot answered these questions confidently and wrongly when left to its own knowledge.
+
+### Permission editors and viewers
+
+Which of the base package's eight editors and viewers answers a given question, what each one does and
+does *not* do, and the exact backoffice navigation.
+
+It is separate from Permission concepts because the two answer different questions, and the base
 package's own documentation splits the same way — the permission model did not change between the 17 and
 18 lines, but the number of screens doubled. Keeping them apart means "what is a Priority Override?" does
 not pay for a tour of the backoffice.
@@ -287,8 +302,9 @@ entry names the neighbour to use instead.
 - No privilege escalation by design. Answers come from the same resolver the backoffice itself uses, so
   the model cannot invent or grant a permission. It can only report what your engine computes, and a
   suggested fix names only user groups and nodes already present in the reasoning.
-- Everything sits under the `advanced-permissions:read` scope, so Umbraco AI's per-user-group governance
-  can allow or deny it like any other tool.
+- Every tool sits under the `advanced-permissions:read` scope, so Umbraco AI's per-user-group governance
+  can allow or deny it like any other tool. The knowledge set is not gated that way: it holds only the
+  package's static help text, never anything read from your site.
 
 
 ## Contributing

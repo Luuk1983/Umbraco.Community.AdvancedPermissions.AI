@@ -1,39 +1,36 @@
-using Umbraco.AI.Core.Tools;
+using System.Text;
 using Umbraco.Community.AdvancedPermissions.AI.Models;
 
-namespace Umbraco.Community.AdvancedPermissions.AI.Tools;
+namespace Umbraco.Community.AdvancedPermissions.AI.Knowledge;
 
 /// <summary>
-/// Returns the reference for the package's eight editors and viewers: how to choose between them, the
-/// three distinctions that separate them, what each one does and does not do, and where to find it.
+/// The reference for the package's eight editors and viewers: how to choose between them, the three
+/// distinctions that separate them, what each one does and does not do, and where to find it. It is the
+/// content of the "Permission editors and viewers" item of <see cref="AdvancedPermissionsKnowledgeSet"/>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The sibling of <see cref="ExplainConceptsTool"/>, split along the same line the base package's own
-/// help docs use: <c>concepts.md</c> describes the permission <i>model</i> and is byte-identical between
-/// the v17 and v18 lines, while the per-surface docs went from five files to nine. The model did not
-/// change; the set of editors did. Keeping them in separate tools means a conceptual question does not
-/// pay for a tour of the backoffice.
+/// The sibling of <see cref="ConceptsReference"/>, split along the same line the base package's own help
+/// docs use: <c>concepts.md</c> describes the permission <i>model</i>, while the per-surface docs went from
+/// five files to nine. It used to be the <c>uap_explain_editors</c> tool; it became knowledge because the
+/// answer never depends on live data.
 /// </para>
 /// <para>
 /// The content is ordered boundaries-first. Eight surfaces whose names all combine "permissions",
 /// "access", "editor" and "viewer" are individually easy to describe and collectively easy to confuse,
-/// and the failure worth preventing is answering about the wrong one — so the disambiguation, the three
-/// contrast pairs, and a per-surface "not this, use that instead" carry more weight here than the
-/// summaries do.
+/// and the failure worth preventing is answering about the wrong one, so the disambiguation, the three
+/// contrast pairs, and a per-surface "not this, use that instead" carry more weight than the summaries.
 /// </para>
 /// <para>
 /// Every string is sourced from the base package's own <c>help-docs/en/*.md</c> and
-/// <c>localization/en.ts</c> (verified against <c>origin/v18/main</c> at the released <c>v18.3.0</c> tag), never invented — the
-/// same rule the grounding and the scope strings follow. Like the concepts tool it takes no arguments and
-/// does no I/O, so the answer is the same every time and its cost is paid only when asked.
+/// <c>localization/en.ts</c> (verified against <c>origin/v18/main</c> at the released <c>v18.3.0</c> tag),
+/// never invented: the same rule the grounding and the scope strings follow.
 /// </para>
 /// </remarks>
-[AITool("uap_explain_editors", "Explain the permission editors", ScopeId = "advanced-permissions:read")]
-public sealed class ExplainEditorsTool : AIToolBase<ExplainEditorsArgs>
+internal static class EditorsReference
 {
-    /// <summary>The reference. Static: the same answer every time, with no I/O.</summary>
-    private static readonly EditorGuide Guide = new(
+    /// <summary>The reference, as structured sections. Static: the same every time, with no I/O.</summary>
+    public static EditorGuide Content { get; } = new(
         HowToChoose:
             "Three questions pick the right screen, and answering them in order is more reliable than " +
             "matching a name — all eight are called some combination of 'permissions', 'access', 'editor' " +
@@ -235,27 +232,42 @@ public sealed class ExplainEditorsTool : AIToolBase<ExplainEditorsArgs>
             "the node in the tree or use the Default permissions row for a baseline, click the cell, set " +
             "the state and scope, and Save.");
 
-    /// <inheritdoc />
-    public override string Description =>
-        "Explain the Advanced Permissions package's eight editors and viewers — which one to use for a " +
-        "given question, how they differ from each other, what each one does and does NOT do, and where to " +
-        "find it in the backoffice. " +
-        "Call this for ANY question about where to go or which screen to use: 'where do I change this?', " +
-        "'which editor shows me why a user can't publish?', 'what's the difference between the Permissions " +
-        "Editor and the Access Viewer?', 'where do I manage Library permissions?', 'how do I stop a group " +
-        "creating an element type?'. " +
-        "Answer from what this returns and not from your own knowledge: there are eight screens whose names " +
-        "all combine the words 'permissions', 'access', 'editor' and 'viewer', so a name-based guess sounds " +
-        "right and sends the editor to the wrong one. It also carries the exact sidebar navigation, which " +
-        "changed in this version — do not describe a menu path from memory. " +
-        "Takes no arguments and needs no node in context, so it works in any section. " +
-        "For how the permission rules themselves work (Allow/Deny, scopes, precedence, Priority Override), " +
-        "use uap_explain_concepts. For the effective permissions on an actual node, use uap_explain_access " +
-        "(content) or uap_explain_library_access (Library).";
+    /// <summary>
+    /// Renders <see cref="Content"/> as the markdown the model reads: the boundaries first, then one
+    /// sub-heading per screen, then the shared navigation, and a closing hand-off to the concepts item for
+    /// questions about the rules themselves (the hand-off the removed tool's description used to carry).
+    /// </summary>
+    /// <returns>The markdown body of the "Permission editors and viewers" knowledge item.</returns>
+    public static string ToMarkdown()
+    {
+        var sb = new StringBuilder();
+        sb.Append("# ").Append(AdvancedPermissionsKnowledgeSet.EditorsItemName).Append('\n');
+        AppendSection(sb, "How to choose", Content.HowToChoose);
+        AppendSection(sb, "Editor versus viewer", Content.EditorVersusViewer);
+        AppendSection(sb, "Permissions versus create filters", Content.PermissionsVersusCreateFilters);
+        AppendSection(sb, "Per-node versus section-wide", Content.PerNodeVersusSectionWide);
 
-    /// <inheritdoc />
-    protected override Task<object> ExecuteAsync(
-        ExplainEditorsArgs args,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult<object>(Guide);
+        sb.Append("\n## The eight screens\n");
+        foreach (var surface in Content.Surfaces)
+        {
+            sb.Append("\n### ").Append(surface.Name).Append("\n\n")
+                .Append(surface.Purpose).Append("\n\n")
+                .Append("Use it when: ").Append(surface.UseWhen).Append("\n\n")
+                .Append("Not this: ").Append(surface.NotThis).Append("\n\n")
+                .Append("Where: ").Append(surface.Navigation).Append('\n');
+        }
+
+        AppendSection(sb, "Navigation", Content.Navigation);
+        sb.Append("\nFor how the permission rules themselves work (Allow and Deny entries, scopes, precedence, ")
+            .Append("Priority Override), read the '").Append(AdvancedPermissionsKnowledgeSet.ConceptsItemName)
+            .Append("' reference.\n");
+        return sb.ToString();
+    }
+
+    /// <summary>Appends one <c>##</c> section.</summary>
+    /// <param name="sb">The markdown being built.</param>
+    /// <param name="heading">The section heading.</param>
+    /// <param name="text">The section text.</param>
+    private static void AppendSection(StringBuilder sb, string heading, string text) =>
+        sb.Append("\n## ").Append(heading).Append("\n\n").Append(text).Append('\n');
 }

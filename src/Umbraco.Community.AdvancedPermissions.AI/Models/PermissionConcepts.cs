@@ -1,13 +1,14 @@
 namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 
 /// <summary>
-/// The conceptual reference for how this package's permissions work, returned by the
-/// <c>uap_explain_concepts</c> tool. Split into named sections so the copilot can quote the part that
-/// answers the question rather than reciting the whole model.
+/// The conceptual reference for how this package's permissions work: the source of the "Permission
+/// concepts" knowledge item (see <c>ConceptsReference</c>). Split into named sections, each rendered under
+/// its own heading, so the copilot can quote the part that answers the question rather than reciting the
+/// whole model.
 /// </summary>
 /// <remarks>
 /// This content is the definitional half of the copilot's grounding, moved out of the always-on system
-/// prompt and paid for only when a conceptual question is actually asked. The wording is sourced from the
+/// prompt and paid for only when the model fetches the knowledge item. The wording is sourced from the
 /// base package's own <c>help-docs/en/concepts.md</c> — it is never invented here, so that the copilot
 /// explains the model exactly as the in-product help does.
 /// </remarks>
@@ -23,7 +24,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// "Start nodes" section.
 /// </param>
 /// <param name="HowToChange">The backoffice navigation for changing a permission by hand.</param>
-public sealed record PermissionConcepts(
+internal sealed record PermissionConcepts(
     string Model,
     string EntryAnatomy,
     string Precedence,

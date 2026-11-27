@@ -1,11 +1,11 @@
-using Umbraco.AI.Core.Tools;
+using Umbraco.Community.AdvancedPermissions.AI.Knowledge;
 using Umbraco.Community.AdvancedPermissions.AI.Models;
-using Umbraco.Community.AdvancedPermissions.AI.Tools;
 
 namespace Umbraco.Community.AdvancedPermissions.AI.Tests;
 
 /// <summary>
-/// Unit tests for <see cref="ExplainEditorsTool"/>.
+/// Unit tests for <see cref="EditorsReference"/>, the content of the "Permission editors and viewers"
+/// knowledge item.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,15 +21,10 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Tests;
 /// pairs must actually be stated. A future edit that turns this back into eight blurbs fails here.
 /// </para>
 /// </remarks>
-public sealed class ExplainEditorsToolTests
+public sealed class EditorsReferenceTests
 {
-    /// <summary>The system under test.</summary>
-    private readonly ExplainEditorsTool _sut = new();
-
-    /// <summary>Runs the tool through its public interface and returns the guide.</summary>
-    /// <returns>The editor guide.</returns>
-    private async Task<EditorGuide> GetGuideAsync() =>
-        Assert.IsType<EditorGuide>(await ((IAITool)_sut).ExecuteAsync(new ExplainEditorsArgs(), CancellationToken.None));
+    /// <summary>The editors reference, exactly as the knowledge item renders it.</summary>
+    private static EditorGuide Guide => EditorsReference.Content;
 
     /// <summary>The eight surfaces the base package registers, by their own on-screen titles.</summary>
     /// <returns>Each expected surface name.</returns>
@@ -50,9 +45,9 @@ public sealed class ExplainEditorsToolTests
     /// updating this reference is caught rather than silently omitted.
     /// </summary>
     [Fact]
-    public async Task Guide_CoversExactlyTheEightSurfaces()
+    public void Guide_CoversExactlyTheEightSurfaces()
     {
-        var guide = await GetGuideAsync();
+        var guide = Guide;
 
         Assert.Equal(8, guide.Surfaces.Count);
         Assert.Equal(
@@ -64,9 +59,9 @@ public sealed class ExplainEditorsToolTests
     /// <param name="name">The surface's on-screen title.</param>
     [Theory]
     [MemberData(nameof(ExpectedSurfaces))]
-    public async Task Guide_IncludesSurface(string name)
+    public void Guide_IncludesSurface(string name)
     {
-        var guide = await GetGuideAsync();
+        var guide = Guide;
 
         Assert.Contains(guide.Surfaces, s => s.Name == name);
     }
@@ -79,9 +74,9 @@ public sealed class ExplainEditorsToolTests
     /// <param name="name">The surface's on-screen title.</param>
     [Theory]
     [MemberData(nameof(ExpectedSurfaces))]
-    public async Task EverySurface_StatesWhatItIsNotAndNamesAnAlternative(string name)
+    public void EverySurface_StatesWhatItIsNotAndNamesAnAlternative(string name)
     {
-        var guide = await GetGuideAsync();
+        var guide = Guide;
         var surface = Assert.Single(guide.Surfaces, s => s.Name == name);
 
         Assert.False(string.IsNullOrWhiteSpace(surface.NotThis), $"{name} does not say what it is not.");
@@ -98,9 +93,9 @@ public sealed class ExplainEditorsToolTests
     /// <param name="name">The surface's on-screen title.</param>
     [Theory]
     [MemberData(nameof(ExpectedSurfaces))]
-    public async Task EverySurface_HasPurposeUseWhenAndNavigation(string name)
+    public void EverySurface_HasPurposeUseWhenAndNavigation(string name)
     {
-        var guide = await GetGuideAsync();
+        var guide = Guide;
         var surface = Assert.Single(guide.Surfaces, s => s.Name == name);
 
         Assert.False(string.IsNullOrWhiteSpace(surface.Purpose));
@@ -125,9 +120,9 @@ public sealed class ExplainEditorsToolTests
     [InlineData("Library Access Viewer", "Library Permissions", "Access Viewer")]
     [InlineData("Library Element Type Permissions Editor", "Library Element Type Permissions", "Permissions Editor")]
     [InlineData("Library Element Type Access Viewer", "Library Element Type Permissions", "Access Viewer")]
-    public async Task EverySurface_NavigationMatchesTheRealSidebar(string name, string group, string menuItem)
+    public void EverySurface_NavigationMatchesTheRealSidebar(string name, string group, string menuItem)
     {
-        var guide = await GetGuideAsync();
+        var guide = Guide;
         var surface = Assert.Single(guide.Surfaces, s => s.Name == name);
 
         Assert.Contains(group, surface.Navigation, StringComparison.Ordinal);
@@ -140,9 +135,9 @@ public sealed class ExplainEditorsToolTests
     /// combined across all of a subject's groups.
     /// </summary>
     [Fact]
-    public async Task Guide_ExplainsEditorVersusViewer()
+    public void Guide_ExplainsEditorVersusViewer()
     {
-        var text = (await GetGuideAsync()).EditorVersusViewer;
+        var text = Guide.EditorVersusViewer;
 
         Assert.Contains("effective", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("reasoning", text, StringComparison.OrdinalIgnoreCase);
@@ -155,9 +150,9 @@ public sealed class ExplainEditorsToolTests
     /// stops the copilot claiming an Allow entry in a create filter grants something.
     /// </summary>
     [Fact]
-    public async Task Guide_ExplainsPermissionsVersusCreateFilters()
+    public void Guide_ExplainsPermissionsVersusCreateFilters()
     {
-        var text = (await GetGuideAsync()).PermissionsVersusCreateFilters;
+        var text = Guide.PermissionsVersusCreateFilters;
 
         Assert.Contains("filter, not a grant", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("default", text, StringComparison.OrdinalIgnoreCase);
@@ -169,9 +164,9 @@ public sealed class ExplainEditorsToolTests
     /// a per-folder element-type restriction is not expressible rather than inventing a way to do it.
     /// </summary>
     [Fact]
-    public async Task Guide_ExplainsPerNodeVersusSectionWide()
+    public void Guide_ExplainsPerNodeVersusSectionWide()
     {
-        var text = (await GetGuideAsync()).PerNodeVersusSectionWide;
+        var text = Guide.PerNodeVersusSectionWide;
 
         Assert.Contains("section-wide", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Library Element Type Permissions", text, StringComparison.Ordinal);
@@ -188,9 +183,9 @@ public sealed class ExplainEditorsToolTests
     /// not the eight summaries — is what prevents a name-based guess.
     /// </summary>
     [Fact]
-    public async Task Guide_HowToChoose_AsksAllThreeQuestions()
+    public void Guide_HowToChoose_AsksAllThreeQuestions()
     {
-        var text = (await GetGuideAsync()).HowToChoose;
+        var text = Guide.HowToChoose;
 
         Assert.Contains("tree", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Library", text, StringComparison.Ordinal);
@@ -205,42 +200,27 @@ public sealed class ExplainEditorsToolTests
     [InlineData("Document Type Permissions")]
     [InlineData("Library Permissions")]
     [InlineData("Library Element Type Permissions")]
-    public async Task Guide_Navigation_NamesEverySidebarGroup(string group)
+    public void Guide_Navigation_NamesEverySidebarGroup(string group)
     {
-        var text = (await GetGuideAsync()).Navigation;
+        var text = Guide.Navigation;
 
         Assert.Contains("Users section", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(group, text, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// The description must route the model here for "where/which screen" questions and hand off the
-    /// other question types, so the five tools do not compete for the same prompts.
+    /// The rendered knowledge must not leak raw identifiers: an editor reads this prose verbatim, so a verb
+    /// id or an entity-type string would be noise at best and confusing at worst.
     /// </summary>
     [Fact]
-    public void Description_RoutesWhereQuestionsHereAndHandsOffTheRest()
+    public void Guide_NeverLeaksRawIdentifiers()
     {
-        var description = _sut.Description;
+        var markdown = EditorsReference.ToMarkdown();
 
-        Assert.Contains("uap_explain_concepts", description, StringComparison.Ordinal);
-        Assert.Contains("uap_explain_access", description, StringComparison.Ordinal);
-        Assert.Contains("uap_explain_library_access", description, StringComparison.Ordinal);
-        Assert.Contains("eight", description, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// The tool must not leak raw identifiers: an editor reads this prose verbatim, so a verb id or an
-    /// entity-type string would be noise at best and confusing at worst.
-    /// </summary>
-    [Fact]
-    public async Task Guide_NeverLeaksRawIdentifiers()
-    {
-        var json = System.Text.Json.JsonSerializer.Serialize(await GetGuideAsync());
-
-        Assert.DoesNotContain("Umb.Document.", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("Umb.Element.", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("$everyone", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("element-folder", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("Umb.Document.", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("Umb.Element.", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("$everyone", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("element-folder", markdown, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -254,9 +234,9 @@ public sealed class ExplainEditorsToolTests
     [InlineData("Document Type Access Viewer")]
     [InlineData("Library Access Viewer")]
     [InlineData("Library Element Type Access Viewer")]
-    public async Task ViewerSurfaces_MentionStartNodeBlocks(string name)
+    public void ViewerSurfaces_MentionStartNodeBlocks(string name)
     {
-        var surface = Assert.Single((await GetGuideAsync()).Surfaces, s => s.Name == name);
+        var surface = Assert.Single(Guide.Surfaces, s => s.Name == name);
         var text = surface.Purpose + " " + surface.UseWhen + " " + surface.NotThis;
 
         Assert.Contains("start node", text, StringComparison.Ordinal);
@@ -265,19 +245,39 @@ public sealed class ExplainEditorsToolTests
 
     /// <summary>On the Library Access Viewer, a permission that never applies stays N/A even when blocked.</summary>
     [Fact]
-    public async Task LibraryAccessViewer_NotApplicableWinsOverBlocked()
+    public void LibraryAccessViewer_NotApplicableWinsOverBlocked()
     {
-        var surface = Assert.Single((await GetGuideAsync()).Surfaces, s => s.Name == "Library Access Viewer");
+        var surface = Assert.Single(Guide.Surfaces, s => s.Name == "Library Access Viewer");
 
         Assert.Contains("stay N/A", surface.NotThis, StringComparison.Ordinal);
     }
 
     /// <summary>The editor-versus-viewer contrast says a blocked viewer cell is neither an Allow nor a Deny.</summary>
     [Fact]
-    public async Task EditorVersusViewer_ExplainsBlockedCells()
+    public void EditorVersusViewer_ExplainsBlockedCells()
     {
-        var guide = await GetGuideAsync();
+        var guide = Guide;
 
         Assert.Contains("Blocked (start nodes)", guide.EditorVersusViewer, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The two reference tools were replaced by knowledge items, so the content must not send the model to
+    /// a tool that no longer exists.
+    /// </summary>
+    [Fact]
+    public void Content_NamesNoRemovedTool()
+    {
+        var markdown = EditorsReference.ToMarkdown();
+
+        Assert.DoesNotContain("uap_explain_concepts", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("uap_explain_editors", markdown, StringComparison.Ordinal);
+    }
+
+    /// <summary>Rule questions are handed to the concepts knowledge item, by its name.</summary>
+    [Fact]
+    public void Content_PointsRuleQuestionsAtTheConceptsKnowledgeItem()
+    {
+        Assert.Contains("Permission concepts", EditorsReference.ToMarkdown(), StringComparison.Ordinal);
     }
 }

@@ -178,18 +178,3 @@ public sealed record AuditPermissionsArgs(
     AuditSeverity? SeverityMin = null,
     [property: Description("Which configuration to audit: 'content' (the content tree — the default), 'library' (the Library tree of items and folders), 'document-types' (the Insert Options deciding which document types each user group may create where), or 'library-element-types' (which element types each user group may create in the Library; section-wide, so scope 'subtree' is not valid with it).")]
     AuditDomain Domain = AuditDomain.Content);
-
-/// <summary>
-/// Arguments for the explain-concepts tool. The tool returns the whole conceptual reference, so it takes
-/// no arguments — a topic filter would only risk the model selecting the wrong section and answering from
-/// its own (wrong) assumptions about the rest.
-/// </summary>
-public sealed record ExplainConceptsArgs();
-
-/// <summary>
-/// Arguments for the explain-editors tool. Like the concepts tool it returns the whole reference and so
-/// takes no arguments — and here the reason is sharper: the point of the reference is the boundaries
-/// <i>between</i> the eight surfaces, which a filter to one of them would remove exactly when it is
-/// needed.
-/// </summary>
-public sealed record ExplainEditorsArgs();

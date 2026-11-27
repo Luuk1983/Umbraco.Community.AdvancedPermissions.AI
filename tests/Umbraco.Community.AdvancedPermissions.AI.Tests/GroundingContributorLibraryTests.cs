@@ -169,16 +169,18 @@ public sealed class GroundingContributorLibraryTests
     }
 
     /// <summary>
-    /// The always-on half must point at both reference tools and name the two trees, because a
+    /// The always-on half must point at both reference knowledge items and name the two trees, because a
     /// conversation with no focused entity is where the model is most likely to guess.
     /// </summary>
     [Fact]
-    public void Contribute_NoEntityType_StillPointsAtBothReferenceTools()
+    public void Contribute_NoEntityType_StillPointsAtBothReferenceItems()
     {
         var text = Contribute(null);
 
-        Assert.Contains("uap_explain_concepts", text, StringComparison.Ordinal);
-        Assert.Contains("uap_explain_editors", text, StringComparison.Ordinal);
+        Assert.Contains("'Permission concepts'", text, StringComparison.Ordinal);
+        Assert.Contains("'Permission editors and viewers'", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("uap_explain_concepts", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("uap_explain_editors", text, StringComparison.Ordinal);
         Assert.Contains("Library", text, StringComparison.Ordinal);
     }
 
