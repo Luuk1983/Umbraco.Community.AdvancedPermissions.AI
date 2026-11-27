@@ -1,5 +1,6 @@
 using Umbraco.AI.Core;
 using Umbraco.AI.Core.RuntimeContext;
+using Umbraco.Community.AdvancedPermissions.AI.Knowledge;
 
 namespace Umbraco.Community.AdvancedPermissions.AI.Context;
 
@@ -15,9 +16,9 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Context;
 /// an ancestor-versus-descendant conflict); (2) editor-grounded <b>terminology</b> — a record is an
 /// "entry" (not a bare "Allow"/"Deny"), an action is a "permission", and the collections are "user groups"
 /// (not "roles"); (3) that the copilot is strictly <b>read-only</b>, so it must never offer to make or
-/// arrange a permission change and must hand it off to the user; and (4) the real backoffice navigation
-/// (the <b>Users</b> section → <b>Content Permissions</b> → <b>Permissions Editor</b>), so "how do I change
-/// this?" is answered with a real menu path rather than an invented one.
+/// arrange a permission change and must hand it off to the user; and (4) where the definitions and the
+/// real backoffice navigation live: the two items of <see cref="AdvancedPermissionsKnowledgeSet"/>, so
+/// "how do I change this?" is answered with a real menu path rather than an invented one.
 /// </para>
 /// <para>
 /// <see cref="DocumentGrounding"/> is appended only on document conversations, and covers what presumes a
@@ -75,15 +76,18 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
     /// <summary>
     /// The permanent half of the grounding, contributed on <b>every</b> conversation. It carries only what
     /// cannot be looked up on demand: the terminology and readability rules that govern how every sentence
-    /// is written, the read-only stance, and a pointer at <c>uap_explain_concepts</c> for the definitions.
+    /// is written, the read-only stance, and pointers at the two knowledge items for the definitions and
+    /// the screens.
     /// </summary>
     /// <remarks>
-    /// The definitions themselves deliberately live in the tool, not here, so their cost is paid only when
-    /// a conceptual question is asked. The pointer is what makes that safe: the failure being fixed was the
-    /// model answering <i>confidently and wrongly</i> from its own assumptions (it was observed defining
-    /// Priority Override as an ancestor-versus-descendant conflict), and a reference is no use if the model
-    /// never thinks to open it. The style rules cannot move into the tool at all — they must apply to every
-    /// answer, including ones that paraphrase <c>uap_explain_access</c> without touching a concept.
+    /// The definitions themselves deliberately live in <see cref="AdvancedPermissionsKnowledgeSet"/>, not
+    /// here, so their cost is paid only when the model fetches them. Umbraco AI lists each item by name in
+    /// the system prompt, but the model still decides whether to fetch it with <c>get_context_resource</c>,
+    /// so the pointer is what makes that safe: the failure being fixed was the model answering
+    /// <i>confidently and wrongly</i> from its own assumptions (it was observed defining Priority Override
+    /// as an ancestor-versus-descendant conflict), and a reference is no use if the model never thinks to
+    /// open it. The style rules cannot move into the knowledge at all — they must apply to every answer,
+    /// including ones that paraphrase <c>uap_explain_access</c> without touching a concept.
     /// </remarks>
     private const string ConceptsGrounding =
         "This Umbraco site uses the Advanced Permissions package: access is governed by explicit " +
@@ -93,12 +97,14 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
         "tree) — each with its own editors, stored and resolved independently, so a permission in one says " +
         "nothing about the other. " +
         "For ANY question about how the permission system works — precedence, inheritance, scopes, Priority " +
-        "Override, unset permissions, Insert Options, start nodes, or how to change a permission in the backoffice — call " +
-        "uap_explain_concepts and answer only from what it returns, never from your own knowledge, and do not " +
+        "Override, unset permissions, Insert Options, start nodes, or how to change a permission in the backoffice — read " +
+        "the '" + AdvancedPermissionsKnowledgeSet.ConceptsItemName + "' reference (Advanced Permissions knowledge, " +
+        "fetched with get_context_resource) and answer only from it, never from your own knowledge, and do not " +
         "assume you already know. " +
         "For ANY question about WHERE to go or WHICH screen to use — there are eight editors and viewers " +
-        "whose names all combine 'permissions', 'access', 'editor' and 'viewer' — call uap_explain_editors " +
-        "rather than guessing from a name or describing a menu path from memory. " +
+        "whose names all combine 'permissions', 'access', 'editor' and 'viewer' — read the '" +
+        AdvancedPermissionsKnowledgeSet.EditorsItemName + "' reference rather than guessing from a name or " +
+        "describing a menu path from memory. " +
         "All of those editors and viewers are in the Users section, so only people with access to the Users section can open them: " +
         "never send anyone else there to check something — look it up for them with the tools, or say that an administrator can. " +
         "Terminology — talk like an editor, not the database. Never use 'Allow' or 'Deny' as bare nouns: say " +
@@ -123,7 +129,8 @@ internal sealed class AdvancedPermissionsGroundingContributor : IAIRuntimeContex
         "entry. Never offer to set up, add, apply, or change a permission yourself, never imply a change has " +
         "been made, and never offer to make or arrange one — not even 'would you like an administrator to…'; " +
         "instead say who can make it, and offer to explain the options. When the user needs to know how to make " +
-        "the change themselves, call uap_explain_concepts for the exact backoffice navigation rather than " +
+        "the change themselves, read the '" + AdvancedPermissionsKnowledgeSet.ConceptsItemName + "' reference " +
+        "for the exact backoffice navigation rather than " +
         "describing a menu path from memory. " +
         "Never state a permission result you have not just retrieved from a tool. If a lookup fails or a node " +
         "cannot be resolved, say so and ask for what you need — do not carry a result over from another node, " +

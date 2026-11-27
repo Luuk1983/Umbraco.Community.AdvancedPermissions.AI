@@ -18,7 +18,7 @@ namespace Umbraco.Community.AdvancedPermissions.AI.Models;
 /// What this surface does <b>not</b> do, and which of the other seven to use for that instead.
 /// </param>
 /// <param name="Navigation">Where to find it in the backoffice.</param>
-public sealed record EditorSurface(
+internal sealed record EditorSurface(
     string Name,
     string Purpose,
     string UseWhen,
@@ -62,7 +62,7 @@ public sealed record EditorSurface(
 /// </param>
 /// <param name="Surfaces">All eight editors and viewers, each with its own boundary.</param>
 /// <param name="Navigation">The backoffice path shared by all eight.</param>
-public sealed record EditorGuide(
+internal sealed record EditorGuide(
     string HowToChoose,
     string EditorVersusViewer,
     string PermissionsVersusCreateFilters,

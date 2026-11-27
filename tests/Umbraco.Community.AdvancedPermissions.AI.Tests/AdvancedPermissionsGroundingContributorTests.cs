@@ -57,7 +57,8 @@ public sealed class AdvancedPermissionsGroundingContributorTests
         _contributor.Contribute(context);
 
         var grounding = Assert.Single(context.SystemMessageParts);
-        Assert.Contains("uap_explain_concepts", grounding, StringComparison.Ordinal);
+        Assert.Contains("'Permission concepts'", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("uap_explain_concepts", grounding, StringComparison.Ordinal);
         Assert.Contains("Deny entry", grounding, StringComparison.Ordinal);
         Assert.DoesNotContain("suggestFix", grounding, StringComparison.Ordinal);
     }
@@ -75,7 +76,8 @@ public sealed class AdvancedPermissionsGroundingContributorTests
         _contributor.Contribute(context);
 
         var grounding = Assert.Single(context.SystemMessageParts);
-        Assert.Contains("uap_explain_concepts", grounding, StringComparison.Ordinal);
+        Assert.Contains("'Permission concepts'", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("uap_explain_concepts", grounding, StringComparison.Ordinal);
         Assert.DoesNotContain("suggestFix", grounding, StringComparison.Ordinal);
     }
 
@@ -125,13 +127,14 @@ public sealed class AdvancedPermissionsGroundingContributorTests
     }
 
     /// <summary>
-    /// The real backoffice navigation now lives in <c>uap_explain_concepts</c> (asserted by that tool's
-    /// tests), so the grounding must send the model there for it rather than carrying the menu path. The
+    /// The real backoffice navigation now lives in the "Permission concepts" knowledge item (asserted by
+    /// <c>ConceptsReferenceTests</c>), so the grounding must send the model there for it rather than
+    /// carrying the menu path. The
     /// original quirk this guards — inventing a Settings-section path — comes back if the model describes
     /// navigation from memory, so the instruction must forbid exactly that.
     /// </summary>
     [Fact]
-    public void Contribute_DocumentContext_DefersNavigationToTheConceptsTool()
+    public void Contribute_DocumentContext_DefersNavigationToTheConceptsKnowledge()
     {
         var context = NewContext();
         context.SetValue(Constants.ContextKeys.EntityType, "document");
@@ -225,16 +228,17 @@ public sealed class AdvancedPermissionsGroundingContributorTests
     }
 
     /// <summary>
-    /// The definitions now live in <c>uap_explain_concepts</c>, so the permanent grounding must POINT at
-    /// that tool rather than restate them — and must tell the model not to answer conceptual questions from
-    /// its own knowledge. This pointer is the whole reason the tool works: the failure it fixes was the
-    /// model answering confidently and wrongly without ever realising it needed a reference.
+    /// The definitions live in the "Permission concepts" knowledge item, so the permanent grounding must
+    /// POINT at it rather than restate them — and must tell the model not to answer conceptual questions
+    /// from its own knowledge. Umbraco AI only lists the item; the model still decides whether to fetch it
+    /// with get_context_resource. This pointer is what makes it fetch: the failure it fixes was the model
+    /// answering confidently and wrongly without ever realising it needed a reference.
     /// </summary>
     [Theory]
     [InlineData("document")]
     [InlineData("media")]
     [InlineData(null)]
-    public void Contribute_AnyContext_PointsAtConceptsToolInsteadOfDefining(string? entityType)
+    public void Contribute_AnyContext_PointsAtConceptsKnowledgeInsteadOfDefining(string? entityType)
     {
         var context = NewContext();
         if (entityType is not null)
@@ -245,19 +249,22 @@ public sealed class AdvancedPermissionsGroundingContributorTests
         _contributor.Contribute(context);
 
         var grounding = Assert.Single(context.SystemMessageParts);
-        Assert.Contains("uap_explain_concepts", grounding, StringComparison.Ordinal);
+        Assert.Contains("'Permission concepts'", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("uap_explain_concepts", grounding, StringComparison.Ordinal);
         Assert.Contains("own knowledge", grounding, StringComparison.Ordinal);
+        Assert.Contains("get_context_resource", grounding, StringComparison.Ordinal);
 
         // The definitions themselves must NOT be duplicated back into the always-on prompt — that would
-        // reintroduce the per-conversation cost the tool exists to avoid.
+        // reintroduce the per-conversation cost the knowledge item exists to avoid.
         Assert.DoesNotContain("flag on a single entry", grounding, StringComparison.Ordinal);
         Assert.DoesNotContain("creatable by default", grounding, StringComparison.Ordinal);
 
-        // The same rule for the v18 editors reference: the always-on half must POINT at
-        // uap_explain_editors, never carry the tour itself. Its content is prose-heavy — eight surface
+        // The same rule for the v18 editors reference: the always-on half must POINT at the
+        // "Permission editors and viewers" knowledge item, never carry the tour itself. Its content is prose-heavy — eight surface
         // descriptions and a navigation walkthrough — so leaking it back here would cost far more per
         // conversation than the concepts definitions ever did.
-        Assert.Contains("uap_explain_editors", grounding, StringComparison.Ordinal);
+        Assert.Contains("'Permission editors and viewers'", grounding, StringComparison.Ordinal);
+        Assert.DoesNotContain("uap_explain_editors", grounding, StringComparison.Ordinal);
         Assert.DoesNotContain("Permissions Editor to change it", grounding, StringComparison.Ordinal);
         Assert.DoesNotContain("Three questions pick the right screen", grounding, StringComparison.Ordinal);
         Assert.DoesNotContain("filter, not a grant", grounding, StringComparison.Ordinal);
@@ -352,9 +359,9 @@ public sealed class AdvancedPermissionsGroundingContributorTests
         Assert.Contains("never suggest a permission entry", grounding, StringComparison.Ordinal);
     }
 
-    /// <summary>The always-on pointer lists start nodes among the topics to look up in uap_explain_concepts.</summary>
+    /// <summary>The always-on pointer lists start nodes among the topics to look up in the concepts knowledge.</summary>
     [Fact]
-    public void Contribute_AnyContext_PointsStartNodeQuestionsAtTheConceptsTool()
+    public void Contribute_AnyContext_PointsStartNodeQuestionsAtTheConceptsKnowledge()
     {
         var context = NewContext();
 

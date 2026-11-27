@@ -2,8 +2,8 @@
 //
 // See en.js for an explanation of how Umbraco AI derives these keys from the
 // tool ids (`uaiTool_{camelCaseId}Label` / `...Description`, one pair per tool:
-// uap_explain_access, uap_explain_library_access, uap_audit_permissions,
-// uap_explain_concepts, uap_explain_editors), the read scope id
+// uap_explain_access, uap_explain_library_access, uap_audit_permissions), the
+// read scope id
 // (`uaiToolScope_advancedPermissions:read{Label,Description}`) and the scope
 // domain heading (`uaiToolScopeDomain_advancedPermissions`).
 export default {
@@ -17,12 +17,6 @@ export default {
     uapAuditPermissionsLabel: 'Permissies controleren',
     uapAuditPermissionsDescription:
       "Controleer de permissie-instellingen van een gebruikersgroep, een tak of de hele site op risico's en conflicten, in de inhoudsboom of de bibliotheek.",
-    uapExplainConceptsLabel: 'Permissiebegrippen uitleggen',
-    uapExplainConceptsDescription:
-      'Leg uit hoe de permissies van deze site werken — Allow/Deny-vermeldingen, voorrang, bereik, overerving, Priority Override, de aanmaakfilters en startnodes.',
-    uapExplainEditorsLabel: 'De permissie-editors uitleggen',
-    uapExplainEditorsDescription:
-      'Leg uit welke van de permissie-editors en -viewers je voor een bepaalde vraag gebruikt, hoe ze verschillen, en waar je ze vindt in de backoffice.',
   },
   uaiToolScope: {
     'advancedPermissions:readLabel': 'Geavanceerde permissies (lezen)',
